@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Xml;
 using Color = Microsoft.Maui.Graphics.Color;
 
 namespace BookViewer;
@@ -246,9 +247,9 @@ public partial class MainPage : ContentPage
         }
 
         string labelText = viewType == "teacherNotes" ? "👨‍🏫 Teacher Notes" : "👨‍🎓 Student Answers";
-        string labelColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
-        string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
         string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
+        string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
+        string labelColor = viewType == "teacherNotes" ? "52, 152, 219" : "46, 204, 113";
 
         return $@"
         <!DOCTYPE html>
@@ -328,7 +329,6 @@ public partial class MainPage : ContentPage
                     position: absolute !important;
                 }}
                 
-                /* Base content */
                 .base-content {{
                     position: absolute;
                     top: 0;
@@ -342,7 +342,6 @@ public partial class MainPage : ContentPage
                     position: absolute !important;
                 }}
                 
-                /* Highlight overlay */
                 .highlight-overlay {{
                     position: absolute;
                     top: 0;
@@ -357,7 +356,6 @@ public partial class MainPage : ContentPage
                     position: absolute !important;
                 }}
                 
-                /* Highlight style */
                 .{highlightClass} {{
                     background: rgba(255, 255, 0, 0.25);
                     border: 3px solid {borderColor};
@@ -365,12 +363,11 @@ public partial class MainPage : ContentPage
                     padding: 3px;
                 }}
                 
-                /* Label */
                 .view-label {{
                     position: fixed;
                     top: 20px;
                     right: 20px;
-                    background: rgba({viewType == "teacherNotes" ? "52, 152, 219" : "46, 204, 113"}, 0.9);
+                    background: rgba({labelColor}, 0.9);
                     color: white;
                     padding: 8px 16px;
                     border-radius: 20px;
