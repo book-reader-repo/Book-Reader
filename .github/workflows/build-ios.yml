@@ -33,9 +33,9 @@ jobs:
           done
           dotnet workload list
 
-      - name: Restore Dependencies (iOS only)
+      - name: Restore Dependencies
         run: |
-          dotnet restore ./BookViewer.Maui.csproj -f net9.0-ios
+          dotnet restore ./BookViewer.Maui.csproj
 
       - name: Build iOS IPA
         run: |
