@@ -40,6 +40,7 @@ jobs:
       - name: Build iOS IPA
         run: |
           dotnet publish ./BookViewer.Maui.csproj -f net9.0-ios -c Release \
+            -p:TargetFramework=net9.0-ios \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:EnableCodeSigning=false \
             -p:BuildIpa=true \
