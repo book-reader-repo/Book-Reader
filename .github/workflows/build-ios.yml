@@ -28,25 +28,22 @@ jobs:
 
       - name: Select Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.5.app || sudo xcode-select -s /Applications/Xcode.app || true
+          # 備註：在 macos-latest 環境，直接用預設 Xcode 通常最安全
+          sudo xcode-select -s /Applications/Xcode.app || true
           xcodebuild -version
 
-      - name: Install MAUI iOS Workload
+      # 修正點 1：使用標準的 restore，自動為這個專案補齊 android 和 ios 負載（解決解讀專案時的報錯）
+      - name: Install MAUI Workloads
         run: |
-          dotnet workload clean || true
-          dotnet workload install maui-ios --version 9.0.120 --source https://api.nuget.org/v3/index.json || true
-          dotnet workload install maui-ios --skip-manifest-update --source https://api.nuget.org/v3/index.json || true
-          dotnet workload repair || true
+          dotnet workload restore ./BookViewer.Maui.csproj
           dotnet workload list
 
-      - name: Restore Dependencies
-        run: |
-          dotnet restore ./BookViewer.Maui.csproj /p:TargetFramework=net9.0-ios /p:UseMaui=true
-
+      # 修正點 2：加入 --no-restore 避免在 publish 時又重複解讀其他未指定的 TargetFramework
       - name: Build iOS IPA
         run: |
-          dotnet publish ./BookViewer.Maui.csproj -f net9.0-ios -c Release \
-            -p:TargetFramework=net9.0-ios \
+          dotnet publish ./BookViewer.Maui.csproj \
+            -f net9.0-ios \
+            -c Release \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:EnableCodeSigning=false \
             -p:BuildIpa=true \
