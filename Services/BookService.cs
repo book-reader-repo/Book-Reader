@@ -1366,7 +1366,7 @@ namespace BookViewer
                         width: 100%;
                         height: 100%;
                         overflow: auto;
-                        background: #1a1a2e;
+                        background: transparent !important;
                         -webkit-font-smoothing: antialiased;
                         -moz-osx-font-smoothing: grayscale;
                     }}
@@ -1378,6 +1378,7 @@ namespace BookViewer
                         padding: 10px;
                         margin: 0;
                         overflow: auto;
+                        background: transparent !important;
                     }}
                     .page-wrapper {{
                         display: flex;
@@ -1393,7 +1394,7 @@ namespace BookViewer
                         width: 1024px;
                         height: 1344px;
                         flex-shrink: 0;
-                        background: #2d2d44;
+                        background: transparent !important;
                         box-shadow: 0 0 30px rgba(0,0,0,0.5);
                         overflow: hidden;
                         border-radius: 4px;
