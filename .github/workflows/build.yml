@@ -33,7 +33,7 @@ jobs:
 
       - name: Install Android Workload
         run: |
-          dotnet workload install android
+          dotnet workload install android maui-android
 
       - name: Build Android APK
         run: |
