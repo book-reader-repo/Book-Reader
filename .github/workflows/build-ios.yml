@@ -1,0 +1,48 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.5.app || sudo xcode-select -s /Applications/Xcode.app || true
+
+      - name: Install MAUI iOS Workload
+        run: |
+          dotnet workload install maui-ios --source https://api.nuget.org/v3/index.json
+
+      - name: Restore Dependencies
+        run: |
+          dotnet restore
+
+      - name: Build iOS App (No Archive)
+        run: |
+          dotnet publish BookViewer.Maui.csproj -f net9.0-ios -c Release \
+            -p:RuntimeIdentifier=ios-arm64 \
+            -p:EnableCodeSigning=false \
+            -p:BuildIpa=true \
+            -p:IpaPackageDir="./publish-output"
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-App-Package
+          path: ./publish-output/*.ipa
+          if-no-files-found: error
