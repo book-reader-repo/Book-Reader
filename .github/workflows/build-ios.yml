@@ -19,6 +19,12 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
+          include-prerelease: false
+
+      - name: Verify .NET Version
+        run: |
+          dotnet --version
+          dotnet --list-sdks
 
       - name: Select Xcode
         run: |
@@ -28,14 +34,14 @@ jobs:
       - name: Install MAUI iOS Workload
         run: |
           dotnet workload clean || true
-          for i in 1 2 3; do
-            dotnet workload install maui-ios --source https://api.nuget.org/v3/index.json && break || sleep 10
-          done
+          dotnet workload install maui-ios --version 9.0.120 --source https://api.nuget.org/v3/index.json || true
+          dotnet workload install maui-ios --skip-manifest-update --source https://api.nuget.org/v3/index.json || true
+          dotnet workload repair || true
           dotnet workload list
 
       - name: Restore Dependencies
         run: |
-          dotnet restore ./BookViewer.Maui.csproj /p:TargetFramework=net9.0-ios
+          dotnet restore ./BookViewer.Maui.csproj /p:TargetFramework=net9.0-ios /p:UseMaui=true
 
       - name: Build iOS IPA
         run: |
