@@ -72,7 +72,11 @@ public partial class MainPage : ContentPage
         InitializeComponent();
         Log("=== MAIN PAGE INITIALIZED ===");
         Log($"Log file: {GetLogFilePath()}");
-
+    
+        ContentWebView.BackgroundColor = Colors.Transparent;
+        TeacherWebView.BackgroundColor = Colors.Transparent;
+        StudentWebView.BackgroundColor = Colors.Transparent;
+        
         // Make WebViews transparent
         ContentWebView.BackgroundColor = Colors.Transparent;
         TeacherWebView.BackgroundColor = Colors.Transparent;
