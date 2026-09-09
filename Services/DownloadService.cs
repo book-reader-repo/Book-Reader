@@ -70,7 +70,6 @@ namespace BookViewer.Services
 
                 bool bookDownloaded = false;
                 string bookExtractDir = null;
-                string parentDir = null;
 
                 for (int i = 0; i < urlPatterns.Length; i++)
                 {
@@ -86,32 +85,29 @@ namespace BookViewer.Services
                     {
                         if (await VerifyZipAsync(savePath))
                         {
-                            bookExtractDir = Path.Combine(tempDir, $"book_{bookNumber}");
+                            bookExtractDir = Path.Combine(tempDir, $"book_{bookNumber}_extracted");
                             Directory.CreateDirectory(bookExtractDir);
 
-                            OnProgress?.Invoke(this, 40);
-                            var unitUids = await ExtractAndFindUidsAsync(savePath, bookExtractDir);
-
-                            parentDir = pattern.Contains("/P02/")
-                                ? pattern.Split("/P02/")[0] + "/P02"
-                                : pattern.Substring(0, pattern.LastIndexOf('/'));
-
+                            OnProgress?.Invoke(this, 30);
+                            
+                            // Extract the main book zip
+                            await ExtractZipAsync(savePath, bookExtractDir);
                             File.Delete(savePath);
                             bookDownloaded = true;
 
                             OnProgress?.Invoke(this, 50);
-                            await DownloadBookResourcePCAsync(bookNumber, parentDir, bookExtractDir);
-
-                            OnProgress?.Invoke(this, 60);
-                            if (unitUids.Any())
-                            {
-                                await ProcessUnitsAsync(unitUids, parentDir, bookNumber, bookExtractDir);
-                            }
-
-                            OnProgress?.Invoke(this, 80);
                             
-                            // Create the final directory and copy everything
-                            Directory.CreateDirectory(finalBookDir);
+                            // Download and extract resource PC zip
+                            await DownloadAndExtractResourcePCAsync(bookNumber, pattern, bookExtractDir);
+
+                            OnProgress?.Invoke(this, 70);
+                            
+                            // Download and extract unit zips
+                            await DownloadAndExtractUnitsAsync(bookNumber, pattern, bookExtractDir);
+
+                            OnProgress?.Invoke(this, 85);
+                            
+                            // Copy the entire extracted folder to the final destination
                             CopyDirectory(bookExtractDir, finalBookDir);
 
                             // Try to find and copy the book cover image
@@ -119,6 +115,7 @@ namespace BookViewer.Services
 
                             // Delete temp folder
                             try { Directory.Delete(bookExtractDir, true); } catch { }
+                            try { Directory.Delete(tempDir, true); } catch { }
 
                             OnProgress?.Invoke(this, 100);
                             OnComplete?.Invoke(this, finalBookDir);
@@ -144,6 +141,298 @@ namespace BookViewer.Services
             finally
             {
                 _isDownloading = false;
+            }
+        }
+
+        private async Task ExtractZipAsync(string zipPath, string extractDir)
+        {
+            try
+            {
+                using var zip = ZipFile.OpenRead(zipPath);
+                foreach (var entry in zip.Entries)
+                {
+                    var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                    var directory = Path.GetDirectoryName(fullPath);
+                    if (!string.IsNullOrEmpty(directory))
+                        Directory.CreateDirectory(directory);
+
+                    if (!entry.FullName.EndsWith("/"))
+                    {
+                        entry.ExtractToFile(fullPath, true);
+                    }
+                }
+                Log($"Extracted zip to: {extractDir}");
+            }
+            catch (Exception ex)
+            {
+                Log($"Error extracting zip: {ex.Message}");
+                throw;
+            }
+        }
+
+        private async Task DownloadAndExtractResourcePCAsync(int bookNumber, string pattern, string extractDir)
+        {
+            try
+            {
+                var parentDir = pattern.Contains("/P02/")
+                    ? pattern.Split("/P02/")[0] + "/P02"
+                    : pattern.Substring(0, pattern.LastIndexOf('/'));
+
+                var patterns = new[]
+                {
+                    $"{parentDir}/book_{bookNumber}_resource_pc.zip",
+                    $"ebook_distribute/V3_otf/{bookNumber}/P02/book_{bookNumber}_resource_pc.zip",
+                };
+
+                foreach (var p in patterns)
+                {
+                    var url = $"{BaseUrl}/{p}";
+                    var savePath = Path.Combine(Path.GetTempPath(), $"book_{bookNumber}_pc.zip");
+
+                    if (await DownloadFileAsync(url, savePath) && await VerifyZipAsync(savePath))
+                    {
+                        try
+                        {
+                            // Extract directly into the extract directory
+                            using var zip = ZipFile.OpenRead(savePath);
+                            foreach (var entry in zip.Entries)
+                            {
+                                var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                                var directory = Path.GetDirectoryName(fullPath);
+                                if (!string.IsNullOrEmpty(directory))
+                                    Directory.CreateDirectory(directory);
+
+                                if (!entry.FullName.EndsWith("/"))
+                                {
+                                    entry.ExtractToFile(fullPath, true);
+                                }
+                            }
+                            Log($"Extracted resource PC zip to: {extractDir}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Error extracting resource PC zip: {ex.Message}");
+                        }
+
+                        try { File.Delete(savePath); } catch { }
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error downloading resource PC: {ex.Message}");
+            }
+        }
+
+        private async Task DownloadAndExtractUnitsAsync(int bookNumber, string pattern, string extractDir)
+        {
+            try
+            {
+                var parentDir = pattern.Contains("/P02/")
+                    ? pattern.Split("/P02/")[0] + "/P02"
+                    : pattern.Substring(0, pattern.LastIndexOf('/'));
+
+                // First, find unit UIDs from the extracted files
+                var unitUids = FindUnitUids(extractDir);
+
+                if (!unitUids.Any())
+                {
+                    Log("No unit UIDs found");
+                    return;
+                }
+
+                Log($"Found {unitUids.Count} unit UIDs");
+
+                // Also check for unit directories in the extracted content
+                var unitsDir = Path.Combine(extractDir, "units");
+                if (!Directory.Exists(unitsDir))
+                {
+                    Directory.CreateDirectory(unitsDir);
+                }
+
+                foreach (var uid in unitUids)
+                {
+                    await DownloadAndExtractUnitAsync(uid, parentDir, bookNumber, extractDir);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error downloading units: {ex.Message}");
+            }
+        }
+
+        private List<string> FindUnitUids(string extractDir)
+        {
+            var unitUids = new HashSet<string>();
+
+            try
+            {
+                // Look for unit folders
+                var unitsDir = Path.Combine(extractDir, "units");
+                if (Directory.Exists(unitsDir))
+                {
+                    foreach (var file in Directory.GetFiles(unitsDir, "*.png"))
+                    {
+                        var match = Regex.Match(Path.GetFileNameWithoutExtension(file), @"unitUID_(\d+)");
+                        if (match.Success && int.TryParse(match.Groups[1].Value, out int num) && num >= 1000 && num <= 100000)
+                            unitUids.Add(match.Groups[1].Value);
+                    }
+                }
+
+                // Look in XML/JSON files for unit UIDs
+                foreach (var file in Directory.GetFiles(extractDir, "*.*", SearchOption.AllDirectories))
+                {
+                    if (file.EndsWith(".xml") || file.EndsWith(".json") || file.EndsWith(".txt"))
+                    {
+                        try
+                        {
+                            var content = File.ReadAllText(file);
+                            var matches = Regex.Matches(content, @"unitUID[_:]?\s*[=:]?\s*[""']?(\d{4,6})[""']?");
+                            foreach (Match match in matches)
+                            {
+                                if (int.TryParse(match.Groups[1].Value, out int num) && num >= 1000 && num <= 100000)
+                                    unitUids.Add(match.Groups[1].Value);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                return unitUids.ToList();
+            }
+            catch (Exception ex)
+            {
+                Log($"Error finding unit UIDs: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        private async Task DownloadAndExtractUnitAsync(string uid, string parentDir, int bookNumber, string extractDir)
+        {
+            try
+            {
+                var patterns = new[]
+                {
+                    $"{parentDir}/unitUID_{uid}.zip",
+                    $"{parentDir}/unit_{uid}.zip",
+                };
+
+                foreach (var pattern in patterns)
+                {
+                    var url = $"{BaseUrl}/{pattern}";
+                    var savePath = Path.Combine(Path.GetTempPath(), $"unit_{uid}.zip");
+
+                    if (await DownloadFileAsync(url, savePath) && await VerifyZipAsync(savePath))
+                    {
+                        try
+                        {
+                            // Extract directly into the extract directory
+                            using var zip = ZipFile.OpenRead(savePath);
+                            foreach (var entry in zip.Entries)
+                            {
+                                var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                                var directory = Path.GetDirectoryName(fullPath);
+                                if (!string.IsNullOrEmpty(directory))
+                                    Directory.CreateDirectory(directory);
+
+                                if (!entry.FullName.EndsWith("/"))
+                                {
+                                    // Check if file already exists, if so rename with unit suffix
+                                    if (File.Exists(fullPath))
+                                    {
+                                        var dir = Path.GetDirectoryName(fullPath);
+                                        var name = Path.GetFileNameWithoutExtension(fullPath);
+                                        var ext = Path.GetExtension(fullPath);
+                                        var newPath = Path.Combine(dir, $"{name}_unit{uid}{ext}");
+                                        entry.ExtractToFile(newPath, true);
+                                    }
+                                    else
+                                    {
+                                        entry.ExtractToFile(fullPath, true);
+                                    }
+                                }
+                            }
+                            Log($"Extracted unit {uid} to: {extractDir}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Error extracting unit {uid}: {ex.Message}");
+                        }
+
+                        try { File.Delete(savePath); } catch { }
+                        break;
+                    }
+                }
+
+                // Also try to download unit PC resource
+                await DownloadAndExtractUnitPCAsync(uid, parentDir, bookNumber, extractDir);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error downloading unit {uid}: {ex.Message}");
+            }
+        }
+
+        private async Task DownloadAndExtractUnitPCAsync(string uid, string parentDir, int bookNumber, string extractDir)
+        {
+            try
+            {
+                var patterns = new[]
+                {
+                    $"{parentDir}/unitUID_{uid}_resource_pc.zip",
+                    $"{parentDir}/unitUID_{uid}_pc.zip",
+                };
+
+                foreach (var pattern in patterns)
+                {
+                    var url = $"{BaseUrl}/{pattern}";
+                    var savePath = Path.Combine(Path.GetTempPath(), $"unit_{uid}_pc.zip");
+
+                    if (await DownloadFileAsync(url, savePath) && await VerifyZipAsync(savePath))
+                    {
+                        try
+                        {
+                            using var zip = ZipFile.OpenRead(savePath);
+                            foreach (var entry in zip.Entries)
+                            {
+                                var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                                var directory = Path.GetDirectoryName(fullPath);
+                                if (!string.IsNullOrEmpty(directory))
+                                    Directory.CreateDirectory(directory);
+
+                                if (!entry.FullName.EndsWith("/"))
+                                {
+                                    // Check if file already exists, if so rename with unit suffix
+                                    if (File.Exists(fullPath))
+                                    {
+                                        var dir = Path.GetDirectoryName(fullPath);
+                                        var name = Path.GetFileNameWithoutExtension(fullPath);
+                                        var ext = Path.GetExtension(fullPath);
+                                        var newPath = Path.Combine(dir, $"{name}_pc{uid}{ext}");
+                                        entry.ExtractToFile(newPath, true);
+                                    }
+                                    else
+                                    {
+                                        entry.ExtractToFile(fullPath, true);
+                                    }
+                                }
+                            }
+                            Log($"Extracted unit PC {uid} to: {extractDir}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Error extracting unit PC {uid}: {ex.Message}");
+                        }
+
+                        try { File.Delete(savePath); } catch { }
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error downloading unit PC {uid}: {ex.Message}");
             }
         }
 
@@ -176,22 +465,21 @@ namespace BookViewer.Services
                 // If no cover found, try to download it
                 if (string.IsNullOrEmpty(foundCover))
                 {
-                    string coverUrl = $"{BaseUrl}/ebook_distribute/V3_otf/{bookNumber}/P02/{bookNumber}.png";
+                    string[] coverUrls = new[]
+                    {
+                        $"{BaseUrl}/ebook_distribute/V3_otf/{bookNumber}/P02/{bookNumber}.png",
+                        $"{BaseUrl}/ebook_distribute/V3_otf/{bookNumber}/book_{bookNumber}.png",
+                    };
+
                     string coverPath = Path.Combine(bookDir, $"{bookNumber}.png");
                     
-                    if (await DownloadFileAsync(coverUrl, coverPath))
+                    foreach (var coverUrl in coverUrls)
                     {
-                        foundCover = coverPath;
-                        Log($"Downloaded cover image for book {bookNumber}");
-                    }
-                    else
-                    {
-                        // Try alternative URL
-                        coverUrl = $"{BaseUrl}/ebook_distribute/V3_otf/{bookNumber}/book_{bookNumber}.png";
                         if (await DownloadFileAsync(coverUrl, coverPath))
                         {
                             foundCover = coverPath;
-                            Log($"Downloaded cover image for book {bookNumber} from alternative URL");
+                            Log($"Downloaded cover image for book {bookNumber}");
+                            break;
                         }
                     }
                 }
@@ -249,258 +537,6 @@ namespace BookViewer.Services
             {
                 return false;
             }
-        }
-
-        private async Task<List<string>> ExtractAndFindUidsAsync(string zipPath, string extractDir)
-        {
-            var unitUids = new HashSet<string>();
-
-            try
-            {
-                using var zip = ZipFile.OpenRead(zipPath);
-                foreach (var entry in zip.Entries)
-                {
-                    var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
-                    var directory = Path.GetDirectoryName(fullPath);
-                    if (!string.IsNullOrEmpty(directory))
-                        Directory.CreateDirectory(directory);
-
-                    if (!entry.FullName.EndsWith("/"))
-                    {
-                        entry.ExtractToFile(fullPath, true);
-                    }
-                }
-
-                // Find unit UIDs from PNG files
-                var unitsDir = Path.Combine(extractDir, "units");
-                if (Directory.Exists(unitsDir))
-                {
-                    foreach (var file in Directory.GetFiles(unitsDir, "*.png"))
-                    {
-                        var match = Regex.Match(Path.GetFileNameWithoutExtension(file), @"unitUID_(\d+)");
-                        if (match.Success && int.TryParse(match.Groups[1].Value, out int num) && num >= 1000 && num <= 100000)
-                            unitUids.Add(match.Groups[1].Value);
-                    }
-                }
-
-                // Find unit UIDs from metadata files
-                foreach (var file in Directory.GetFiles(extractDir, "*.*", SearchOption.AllDirectories))
-                {
-                    if (file.EndsWith(".json") || file.EndsWith(".xml") || file.EndsWith(".txt"))
-                    {
-                        try
-                        {
-                            var content = await File.ReadAllTextAsync(file);
-                            var matches = Regex.Matches(content, @"unitUID[_:]?\s*[=:]?\s*[""']?(\d{4,6})[""']?");
-                            foreach (Match match in matches)
-                            {
-                                if (int.TryParse(match.Groups[1].Value, out int num) && num >= 1000 && num <= 100000)
-                                    unitUids.Add(match.Groups[1].Value);
-                            }
-                        }
-                        catch { }
-                    }
-                }
-
-                return unitUids.ToList();
-            }
-            catch
-            {
-                return new List<string>();
-            }
-        }
-
-        private async Task DownloadBookResourcePCAsync(int bookNumber, string parentDir, string extractDir)
-        {
-            var patterns = new[]
-            {
-                $"{parentDir}/book_{bookNumber}_resource_pc.zip",
-                $"ebook_distribute/V3_otf/{bookNumber}/P02/book_{bookNumber}_resource_pc.zip",
-            };
-
-            var resourceDir = Path.Combine(extractDir, "resource");
-            Directory.CreateDirectory(resourceDir);
-
-            foreach (var pattern in patterns)
-            {
-                var url = $"{BaseUrl}/{pattern}";
-                var savePath = Path.Combine(Path.GetTempPath(), $"book_{bookNumber}_pc.zip");
-
-                if (await DownloadFileAsync(url, savePath) && await VerifyZipAsync(savePath))
-                {
-                    try
-                    {
-                        using var zip = ZipFile.OpenRead(savePath);
-                        foreach (var entry in zip.Entries)
-                        {
-                            var fullPath = Path.Combine(resourceDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
-                            var directory = Path.GetDirectoryName(fullPath);
-                            if (!string.IsNullOrEmpty(directory))
-                                Directory.CreateDirectory(directory);
-
-                            if (!entry.FullName.EndsWith("/"))
-                            {
-                                entry.ExtractToFile(fullPath, true);
-                            }
-                        }
-                    }
-                    catch { }
-
-                    try { File.Delete(savePath); } catch { }
-                    break;
-                }
-            }
-        }
-
-        private async Task ProcessUnitsAsync(List<string> unitUids, string parentDir, int bookNumber, string extractDir)
-        {
-            var resourceDir = Path.Combine(extractDir, "resource");
-            Directory.CreateDirectory(resourceDir);
-
-            for (int i = 0; i < unitUids.Count; i++)
-            {
-                var uid = unitUids[i];
-                OnProgress?.Invoke(this, 60 + (int)((i / (double)unitUids.Count) * 20));
-
-                var unitDir = await DownloadUnitAsync(uid, parentDir, bookNumber);
-                if (unitDir != null)
-                {
-                    // Copy to book root
-                    foreach (var item in Directory.GetFileSystemEntries(unitDir))
-                    {
-                        var name = Path.GetFileName(item);
-                        var dest = Path.Combine(extractDir, name);
-
-                        if (File.Exists(dest))
-                        {
-                            var baseName = Path.GetFileNameWithoutExtension(name);
-                            var ext = Path.GetExtension(name);
-                            dest = Path.Combine(extractDir, $"{baseName}_unit{uid}{ext}");
-                        }
-
-                        if (Directory.Exists(item))
-                            CopyDirectory(item, dest);
-                        else
-                            File.Copy(item, dest, true);
-                    }
-
-                    // Download PC resource for unit
-                    var pcDir = await DownloadUnitPCAsync(uid, parentDir, bookNumber);
-                    if (pcDir != null)
-                    {
-                        foreach (var item in Directory.GetFileSystemEntries(pcDir))
-                        {
-                            var name = Path.GetFileName(item);
-                            var dest = Path.Combine(resourceDir, name);
-
-                            if (File.Exists(dest))
-                            {
-                                var baseName = Path.GetFileNameWithoutExtension(name);
-                                var ext = Path.GetExtension(name);
-                                dest = Path.Combine(resourceDir, $"{baseName}_pc{uid}{ext}");
-                            }
-
-                            if (Directory.Exists(item))
-                                CopyDirectory(item, dest);
-                            else
-                                File.Copy(item, dest, true);
-                        }
-
-                        try { Directory.Delete(pcDir, true); } catch { }
-                    }
-
-                    try { Directory.Delete(unitDir, true); } catch { }
-                }
-            }
-        }
-
-        private async Task<string> DownloadUnitAsync(string uid, string parentDir, int bookNumber)
-        {
-            var patterns = new[]
-            {
-                $"{parentDir}/unitUID_{uid}.zip",
-                $"{parentDir}/unit_{uid}.zip",
-            };
-
-            var extractDir = Path.Combine(Path.GetTempPath(), $"unit_{uid}");
-
-            foreach (var pattern in patterns)
-            {
-                var url = $"{BaseUrl}/{pattern}";
-                var savePath = Path.Combine(Path.GetTempPath(), $"unit_{uid}.zip");
-
-                if (await DownloadFileAsync(url, savePath) && await VerifyZipAsync(savePath))
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(extractDir);
-                        using var zip = ZipFile.OpenRead(savePath);
-                        foreach (var entry in zip.Entries)
-                        {
-                            var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
-                            var directory = Path.GetDirectoryName(fullPath);
-                            if (!string.IsNullOrEmpty(directory))
-                                Directory.CreateDirectory(directory);
-
-                            if (!entry.FullName.EndsWith("/"))
-                            {
-                                entry.ExtractToFile(fullPath, true);
-                            }
-                        }
-                        return extractDir;
-                    }
-                    catch { }
-
-                    try { File.Delete(savePath); } catch { }
-                }
-            }
-
-            try { Directory.Delete(extractDir, true); } catch { }
-            return null;
-        }
-
-        private async Task<string> DownloadUnitPCAsync(string uid, string parentDir, int bookNumber)
-        {
-            var patterns = new[]
-            {
-                $"{parentDir}/unitUID_{uid}_resource_pc.zip",
-                $"{parentDir}/unitUID_{uid}_pc.zip",
-            };
-
-            var extractDir = Path.Combine(Path.GetTempPath(), $"unit_{uid}_pc");
-
-            foreach (var pattern in patterns)
-            {
-                var url = $"{BaseUrl}/{pattern}";
-                var savePath = Path.Combine(Path.GetTempPath(), $"unit_{uid}_pc.zip");
-
-                if (await DownloadFileAsync(url, savePath) && await VerifyZipAsync(savePath))
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(extractDir);
-                        using var zip = ZipFile.OpenRead(savePath);
-                        foreach (var entry in zip.Entries)
-                        {
-                            var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
-                            var directory = Path.GetDirectoryName(fullPath);
-                            if (!string.IsNullOrEmpty(directory))
-                                Directory.CreateDirectory(directory);
-
-                            if (!entry.FullName.EndsWith("/"))
-                            {
-                                entry.ExtractToFile(fullPath, true);
-                            }
-                        }
-                        return extractDir;
-                    }
-                    catch { }
-
-                    try { File.Delete(savePath); } catch { }
-                }
-            }
-
-            return null;
         }
 
         private void CopyDirectory(string source, string dest)
