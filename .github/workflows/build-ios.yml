@@ -45,6 +45,7 @@ jobs:
       # 核心修正 2：在限縮平台後執行標準 restore，此時 SDK 只會專心補齊所需的 ios 負載
       - name: Install MAUI Workloads
         run: |
+          dotnet workload install ios maui-ios
           dotnet workload restore ./BookViewer.Maui.csproj
           dotnet workload list
 
