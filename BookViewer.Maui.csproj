@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFrameworks>net9.0-ios;net9.0-android</TargetFrameworks>
+        <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net9.0-ios;net9.0-android</TargetFrameworks>
+        <TargetFrameworks Condition="'$(OS)' != 'Windows_NT' AND '$(TargetFramework)' == ''">net9.0-ios;net9.0-android</TargetFrameworks>
+        <TargetFrameworks Condition="'$(TargetFramework)' != ''">$(TargetFramework)</TargetFrameworks>
         <OutputType>Exe</OutputType>
         <UseMaui>true</UseMaui>
         <SingleProject>true</SingleProject>
@@ -15,7 +17,7 @@
         <SupportedOSPlatformVersion Condition="'$(TargetFramework)' == 'net9.0-ios'">14.0</SupportedOSPlatformVersion>
         <CodesignEntitlements Condition="'$(TargetFramework)' == 'net9.0-ios'">oxsolution.entitlements</CodesignEntitlements>
 
-        <!-- Android - add more RIDs for broader compatibility -->
+        <!-- Android -->
         <RuntimeIdentifiers Condition="'$(TargetFramework)' == 'net9.0-android'">android-arm64;android-x64;android-arm</RuntimeIdentifiers>
         <SupportedOSPlatformVersion Condition="'$(TargetFramework)' == 'net9.0-android'">21.0</SupportedOSPlatformVersion>
         
@@ -25,15 +27,23 @@
         <AndroidUseAapt2>true</AndroidUseAapt2>
         <AndroidCreatePackagePerAbi>false</AndroidCreatePackagePerAbi>
         <AndroidEnableAssemblyCompression>false</AndroidEnableAssemblyCompression>
-        
-        <!-- Enable AOT for better performance on Android -->
         <AndroidEnableAot>false</AndroidEnableAot>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-android'">
+        <!-- Android only settings -->
+        <AndroidUseLatestPlatformSdk>false</AndroidUseLatestPlatformSdk>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Maui.Controls" Version="9.0.0" />
         <PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="9.0.0" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
+        <!-- iOS only items -->
+        <BundleResource Include="Platforms\iOS\**\*" />
     </ItemGroup>
 
     <ItemGroup>
