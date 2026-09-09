@@ -163,10 +163,29 @@
                     Margin="4,0,0,0"/>
         </Grid>
 
-        <!-- Content Area - Single WebView -->
-        <WebView x:Name="ContentWebView" 
-                 Grid.Row="1"
-                 BackgroundColor="#2d2d44"/>
+        <!-- Content Area - Side by Side -->
+        <Grid Grid.Row="1" BackgroundColor="#2d2d44">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="LeftColumn" Width="*"/>
+                <ColumnDefinition x:Name="RightColumn" Width="0"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- Left: Base content -->
+            <WebView x:Name="ContentWebView" 
+                     Grid.Column="0"
+                     BackgroundColor="#2d2d44"/>
+            
+            <!-- Right: Teacher Notes / Student Answers -->
+            <WebView x:Name="TeacherWebView" 
+                     Grid.Column="1"
+                     BackgroundColor="#2d2d44"
+                     IsVisible="False"/>
+            
+            <WebView x:Name="StudentWebView" 
+                     Grid.Column="1"
+                     BackgroundColor="#2d2d44"
+                     IsVisible="False"/>
+        </Grid>
 
         <!-- Status Bar -->
         <Grid Grid.Row="2" BackgroundColor="#16213e" Padding="8,4">
