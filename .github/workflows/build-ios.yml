@@ -35,11 +35,11 @@ jobs:
 
       - name: Restore Dependencies
         run: |
-          dotnet restore ./BookViewer.Maui.csproj
+          dotnet restore ./BookViewer.Maui.csproj --framework net9.0-ios
 
       - name: Build iOS IPA
         run: |
-          dotnet publish ./BookViewer.Maui.csproj -f net9.0-ios -c Release \
+          dotnet publish ./BookViewer.Maui.csproj -f net9.0-ios -c Debug \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:EnableCodeSigning=false \
             -p:BuildIpa=true \
