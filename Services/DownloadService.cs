@@ -48,7 +48,7 @@ namespace BookViewer.Services
                 var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
                 Directory.CreateDirectory(booksDir);
 
-                var tempDir = Path.Combine(booksDir, "temp");
+                var tempDir = Path.Combine(booksDir, "temp_" + Guid.NewGuid().ToString().Substring(0, 8));
                 Directory.CreateDirectory(tempDir);
 
                 // Final book directory
@@ -57,7 +57,7 @@ namespace BookViewer.Services
                 // If the book already exists, ask for confirmation
                 if (Directory.Exists(finalBookDir))
                 {
-                    OnError?.Invoke(this, $"Book {bookNumber} already exists. Please delete it first.");
+                    OnError?.Invoke(this, $"Book {bookNumber} already exists at:\n{finalBookDir}\nPlease delete it first.");
                     _isDownloading = false;
                     return;
                 }
@@ -87,13 +87,13 @@ namespace BookViewer.Services
                     {
                         if (await VerifyZipAsync(savePath))
                         {
-                            bookExtractDir = Path.Combine(tempDir, $"book_{bookNumber}_extracted");
+                            bookExtractDir = Path.Combine(tempDir, "extracted");
                             Directory.CreateDirectory(bookExtractDir);
 
                             OnProgress?.Invoke(this, 30);
                             
-                            // Extract the main book zip - preserve all folder structure
-                            await ExtractZipPreserveStructureAsync(savePath, bookExtractDir);
+                            // Extract the main book zip
+                            await ExtractZipAsync(savePath, bookExtractDir);
                             File.Delete(savePath);
                             bookDownloaded = true;
 
@@ -108,7 +108,7 @@ namespace BookViewer.Services
 
                             OnProgress?.Invoke(this, 70);
                             
-                            // Find unit UIDs from the extracted files (like Abacus does)
+                            // Find unit UIDs from the extracted files
                             var unitUids = FindUnitUids(bookExtractDir);
                             
                             // Download and extract unit zips
@@ -119,14 +119,16 @@ namespace BookViewer.Services
 
                             OnProgress?.Invoke(this, 85);
                             
-                            // Copy the entire extracted folder to the final destination
+                            // Create the final directory
+                            Directory.CreateDirectory(finalBookDir);
+                            
+                            // Copy everything from extractDir to finalBookDir, preserving structure
                             CopyDirectory(bookExtractDir, finalBookDir);
 
                             // Try to find and copy the book cover image
                             await CopyBookCoverAsync(bookNumber, finalBookDir);
 
                             // Delete temp folder
-                            try { Directory.Delete(bookExtractDir, true); } catch { }
                             try { Directory.Delete(tempDir, true); } catch { }
 
                             OnProgress?.Invoke(this, 100);
@@ -156,14 +158,13 @@ namespace BookViewer.Services
             }
         }
 
-        private async Task ExtractZipPreserveStructureAsync(string zipPath, string extractDir)
+        private async Task ExtractZipAsync(string zipPath, string extractDir)
         {
             try
             {
                 using var zip = ZipFile.OpenRead(zipPath);
                 foreach (var entry in zip.Entries)
                 {
-                    // Skip directory entries
                     if (entry.FullName.EndsWith("/"))
                         continue;
 
@@ -172,15 +173,31 @@ namespace BookViewer.Services
                     if (!string.IsNullOrEmpty(directory))
                         Directory.CreateDirectory(directory);
 
-                    // Extract the file
                     entry.ExtractToFile(fullPath, true);
                 }
-                Log($"Extracted zip preserving structure to: {extractDir}");
+                Log($"Extracted zip to: {extractDir}");
             }
             catch (Exception ex)
             {
                 Log($"Error extracting zip: {ex.Message}");
                 throw;
+            }
+        }
+
+        private void CopyDirectory(string source, string dest)
+        {
+            Directory.CreateDirectory(dest);
+
+            foreach (var file in Directory.GetFiles(source))
+            {
+                var destFile = Path.Combine(dest, Path.GetFileName(file));
+                File.Copy(file, destFile, true);
+            }
+
+            foreach (var dir in Directory.GetDirectories(source))
+            {
+                var destSubDir = Path.Combine(dest, Path.GetFileName(dir));
+                CopyDirectory(dir, destSubDir);
             }
         }
 
@@ -203,7 +220,6 @@ namespace BookViewer.Services
                     {
                         try
                         {
-                            // Extract directly into the extract directory, preserving structure
                             using var zip = ZipFile.OpenRead(savePath);
                             foreach (var entry in zip.Entries)
                             {
@@ -215,7 +231,6 @@ namespace BookViewer.Services
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
 
-                                // If file exists, overwrite or skip (like Abacus does)
                                 if (!File.Exists(fullPath))
                                 {
                                     entry.ExtractToFile(fullPath, true);
@@ -245,7 +260,7 @@ namespace BookViewer.Services
 
             try
             {
-                // Look for unit folders (like Abacus does)
+                // Look for unit folders
                 var unitsDir = Path.Combine(extractDir, "units");
                 if (Directory.Exists(unitsDir))
                 {
@@ -257,7 +272,7 @@ namespace BookViewer.Services
                     }
                 }
 
-                // Look in XML/JSON files for unit UIDs (like Abacus does)
+                // Look in XML/JSON files
                 foreach (var file in Directory.GetFiles(extractDir, "*.*", SearchOption.AllDirectories))
                 {
                     if (file.EndsWith(".xml") || file.EndsWith(".json") || file.EndsWith(".txt"))
@@ -319,7 +334,6 @@ namespace BookViewer.Services
                     {
                         try
                         {
-                            // Extract directly into the extract directory, preserving structure
                             using var zip = ZipFile.OpenRead(savePath);
                             foreach (var entry in zip.Entries)
                             {
@@ -331,7 +345,6 @@ namespace BookViewer.Services
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
 
-                                // Like Abacus, if file exists, skip (don't overwrite)
                                 if (!File.Exists(fullPath))
                                 {
                                     entry.ExtractToFile(fullPath, true);
@@ -415,7 +428,7 @@ namespace BookViewer.Services
         {
             try
             {
-                // Look for cover image in various locations (like Abacus does)
+                // Look for cover image in various locations
                 string[] possibleCoverPaths = new[]
                 {
                     Path.Combine(bookDir, $"{bookNumber}.png"),
@@ -511,22 +524,6 @@ namespace BookViewer.Services
             catch
             {
                 return false;
-            }
-        }
-
-        private void CopyDirectory(string source, string dest)
-        {
-            Directory.CreateDirectory(dest);
-
-            foreach (var file in Directory.GetFiles(source))
-            {
-                var destFile = Path.Combine(dest, Path.GetFileName(file));
-                File.Copy(file, destFile, true);
-            }
-
-            foreach (var dir in Directory.GetDirectories(source))
-            {
-                CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)));
             }
         }
     }
