@@ -151,24 +151,22 @@
                     TextColor="White"
                     Padding="10,6"
                     Margin="4,0,0,0"/>
+            
+            <!-- View Mode Toggle -->
+            <Button x:Name="ViewModeButton" 
+                    Grid.Column="10"
+                    Text="📄 Content" 
+                    Clicked="OnViewModeClicked"
+                    BackgroundColor="#2c3e50"
+                    TextColor="White"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
         </Grid>
 
-        <!-- Content Area - Stacked WebViews with transparent backgrounds -->
-        <Grid Grid.Row="1" BackgroundColor="#2d2d44">
-            <!-- Bottom: Base content -->
-            <WebView x:Name="ContentWebView" 
-                     BackgroundColor="Transparent"/>
-            
-            <!-- Top: Teacher Notes (transparent) -->
-            <WebView x:Name="TeacherWebView" 
-                     BackgroundColor="Transparent"
-                     IsVisible="False"/>
-            
-            <!-- Top: Student Answers (transparent) -->
-            <WebView x:Name="StudentWebView" 
-                     BackgroundColor="Transparent"
-                     IsVisible="False"/>
-        </Grid>
+        <!-- Content Area - Single WebView -->
+        <WebView x:Name="ContentWebView" 
+                 Grid.Row="1"
+                 BackgroundColor="#2d2d44"/>
 
         <!-- Status Bar -->
         <Grid Grid.Row="2" BackgroundColor="#16213e" Padding="8,4">
