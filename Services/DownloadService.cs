@@ -4,7 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
-using System.Text.Json;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -62,6 +62,7 @@ namespace BookViewer.Services
                     return;
                 }
 
+                // Try different URL patterns (like the Abacus code does)
                 var urlPatterns = new[]
                 {
                     $"ebook_distribute/V3_otf/{bookNumber}/P02/book_{bookNumber}_P02.zip",
@@ -70,6 +71,7 @@ namespace BookViewer.Services
 
                 bool bookDownloaded = false;
                 string bookExtractDir = null;
+                string parentDir = null;
 
                 for (int i = 0; i < urlPatterns.Length; i++)
                 {
@@ -90,20 +92,30 @@ namespace BookViewer.Services
 
                             OnProgress?.Invoke(this, 30);
                             
-                            // Extract the main book zip
-                            await ExtractZipAsync(savePath, bookExtractDir);
+                            // Extract the main book zip - preserve all folder structure
+                            await ExtractZipPreserveStructureAsync(savePath, bookExtractDir);
                             File.Delete(savePath);
                             bookDownloaded = true;
+
+                            parentDir = pattern.Contains("/P02/")
+                                ? pattern.Split("/P02/")[0] + "/P02"
+                                : pattern.Substring(0, pattern.LastIndexOf('/'));
 
                             OnProgress?.Invoke(this, 50);
                             
                             // Download and extract resource PC zip
-                            await DownloadAndExtractResourcePCAsync(bookNumber, pattern, bookExtractDir);
+                            await DownloadAndExtractResourcePCAsync(bookNumber, parentDir, bookExtractDir);
 
                             OnProgress?.Invoke(this, 70);
                             
+                            // Find unit UIDs from the extracted files (like Abacus does)
+                            var unitUids = FindUnitUids(bookExtractDir);
+                            
                             // Download and extract unit zips
-                            await DownloadAndExtractUnitsAsync(bookNumber, pattern, bookExtractDir);
+                            if (unitUids.Any())
+                            {
+                                await DownloadAndExtractUnitsAsync(unitUids, parentDir, bookNumber, bookExtractDir);
+                            }
 
                             OnProgress?.Invoke(this, 85);
                             
@@ -144,24 +156,26 @@ namespace BookViewer.Services
             }
         }
 
-        private async Task ExtractZipAsync(string zipPath, string extractDir)
+        private async Task ExtractZipPreserveStructureAsync(string zipPath, string extractDir)
         {
             try
             {
                 using var zip = ZipFile.OpenRead(zipPath);
                 foreach (var entry in zip.Entries)
                 {
+                    // Skip directory entries
+                    if (entry.FullName.EndsWith("/"))
+                        continue;
+
                     var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
                     var directory = Path.GetDirectoryName(fullPath);
                     if (!string.IsNullOrEmpty(directory))
                         Directory.CreateDirectory(directory);
 
-                    if (!entry.FullName.EndsWith("/"))
-                    {
-                        entry.ExtractToFile(fullPath, true);
-                    }
+                    // Extract the file
+                    entry.ExtractToFile(fullPath, true);
                 }
-                Log($"Extracted zip to: {extractDir}");
+                Log($"Extracted zip preserving structure to: {extractDir}");
             }
             catch (Exception ex)
             {
@@ -170,39 +184,39 @@ namespace BookViewer.Services
             }
         }
 
-        private async Task DownloadAndExtractResourcePCAsync(int bookNumber, string pattern, string extractDir)
+        private async Task DownloadAndExtractResourcePCAsync(int bookNumber, string parentDir, string extractDir)
         {
             try
             {
-                var parentDir = pattern.Contains("/P02/")
-                    ? pattern.Split("/P02/")[0] + "/P02"
-                    : pattern.Substring(0, pattern.LastIndexOf('/'));
-
                 var patterns = new[]
                 {
                     $"{parentDir}/book_{bookNumber}_resource_pc.zip",
                     $"ebook_distribute/V3_otf/{bookNumber}/P02/book_{bookNumber}_resource_pc.zip",
                 };
 
-                foreach (var p in patterns)
+                foreach (var pattern in patterns)
                 {
-                    var url = $"{BaseUrl}/{p}";
+                    var url = $"{BaseUrl}/{pattern}";
                     var savePath = Path.Combine(Path.GetTempPath(), $"book_{bookNumber}_pc.zip");
 
                     if (await DownloadFileAsync(url, savePath) && await VerifyZipAsync(savePath))
                     {
                         try
                         {
-                            // Extract directly into the extract directory
+                            // Extract directly into the extract directory, preserving structure
                             using var zip = ZipFile.OpenRead(savePath);
                             foreach (var entry in zip.Entries)
                             {
+                                if (entry.FullName.EndsWith("/"))
+                                    continue;
+
                                 var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
 
-                                if (!entry.FullName.EndsWith("/"))
+                                // If file exists, overwrite or skip (like Abacus does)
+                                if (!File.Exists(fullPath))
                                 {
                                     entry.ExtractToFile(fullPath, true);
                                 }
@@ -225,50 +239,13 @@ namespace BookViewer.Services
             }
         }
 
-        private async Task DownloadAndExtractUnitsAsync(int bookNumber, string pattern, string extractDir)
-        {
-            try
-            {
-                var parentDir = pattern.Contains("/P02/")
-                    ? pattern.Split("/P02/")[0] + "/P02"
-                    : pattern.Substring(0, pattern.LastIndexOf('/'));
-
-                // First, find unit UIDs from the extracted files
-                var unitUids = FindUnitUids(extractDir);
-
-                if (!unitUids.Any())
-                {
-                    Log("No unit UIDs found");
-                    return;
-                }
-
-                Log($"Found {unitUids.Count} unit UIDs");
-
-                // Also check for unit directories in the extracted content
-                var unitsDir = Path.Combine(extractDir, "units");
-                if (!Directory.Exists(unitsDir))
-                {
-                    Directory.CreateDirectory(unitsDir);
-                }
-
-                foreach (var uid in unitUids)
-                {
-                    await DownloadAndExtractUnitAsync(uid, parentDir, bookNumber, extractDir);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"Error downloading units: {ex.Message}");
-            }
-        }
-
         private List<string> FindUnitUids(string extractDir)
         {
             var unitUids = new HashSet<string>();
 
             try
             {
-                // Look for unit folders
+                // Look for unit folders (like Abacus does)
                 var unitsDir = Path.Combine(extractDir, "units");
                 if (Directory.Exists(unitsDir))
                 {
@@ -280,7 +257,7 @@ namespace BookViewer.Services
                     }
                 }
 
-                // Look in XML/JSON files for unit UIDs
+                // Look in XML/JSON files for unit UIDs (like Abacus does)
                 foreach (var file in Directory.GetFiles(extractDir, "*.*", SearchOption.AllDirectories))
                 {
                     if (file.EndsWith(".xml") || file.EndsWith(".json") || file.EndsWith(".txt"))
@@ -308,6 +285,21 @@ namespace BookViewer.Services
             }
         }
 
+        private async Task DownloadAndExtractUnitsAsync(List<string> unitUids, string parentDir, int bookNumber, string extractDir)
+        {
+            try
+            {
+                foreach (var uid in unitUids)
+                {
+                    await DownloadAndExtractUnitAsync(uid, parentDir, bookNumber, extractDir);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error downloading units: {ex.Message}");
+            }
+        }
+
         private async Task DownloadAndExtractUnitAsync(string uid, string parentDir, int bookNumber, string extractDir)
         {
             try
@@ -327,30 +319,22 @@ namespace BookViewer.Services
                     {
                         try
                         {
-                            // Extract directly into the extract directory
+                            // Extract directly into the extract directory, preserving structure
                             using var zip = ZipFile.OpenRead(savePath);
                             foreach (var entry in zip.Entries)
                             {
+                                if (entry.FullName.EndsWith("/"))
+                                    continue;
+
                                 var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
 
-                                if (!entry.FullName.EndsWith("/"))
+                                // Like Abacus, if file exists, skip (don't overwrite)
+                                if (!File.Exists(fullPath))
                                 {
-                                    // Check if file already exists, if so rename with unit suffix
-                                    if (File.Exists(fullPath))
-                                    {
-                                        var dir = Path.GetDirectoryName(fullPath);
-                                        var name = Path.GetFileNameWithoutExtension(fullPath);
-                                        var ext = Path.GetExtension(fullPath);
-                                        var newPath = Path.Combine(dir, $"{name}_unit{uid}{ext}");
-                                        entry.ExtractToFile(newPath, true);
-                                    }
-                                    else
-                                    {
-                                        entry.ExtractToFile(fullPath, true);
-                                    }
+                                    entry.ExtractToFile(fullPath, true);
                                 }
                             }
                             Log($"Extracted unit {uid} to: {extractDir}");
@@ -396,26 +380,17 @@ namespace BookViewer.Services
                             using var zip = ZipFile.OpenRead(savePath);
                             foreach (var entry in zip.Entries)
                             {
+                                if (entry.FullName.EndsWith("/"))
+                                    continue;
+
                                 var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
 
-                                if (!entry.FullName.EndsWith("/"))
+                                if (!File.Exists(fullPath))
                                 {
-                                    // Check if file already exists, if so rename with unit suffix
-                                    if (File.Exists(fullPath))
-                                    {
-                                        var dir = Path.GetDirectoryName(fullPath);
-                                        var name = Path.GetFileNameWithoutExtension(fullPath);
-                                        var ext = Path.GetExtension(fullPath);
-                                        var newPath = Path.Combine(dir, $"{name}_pc{uid}{ext}");
-                                        entry.ExtractToFile(newPath, true);
-                                    }
-                                    else
-                                    {
-                                        entry.ExtractToFile(fullPath, true);
-                                    }
+                                    entry.ExtractToFile(fullPath, true);
                                 }
                             }
                             Log($"Extracted unit PC {uid} to: {extractDir}");
@@ -440,7 +415,7 @@ namespace BookViewer.Services
         {
             try
             {
-                // Look for cover image in various locations
+                // Look for cover image in various locations (like Abacus does)
                 string[] possibleCoverPaths = new[]
                 {
                     Path.Combine(bookDir, $"{bookNumber}.png"),
