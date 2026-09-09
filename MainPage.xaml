@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="BookViewer.MainPage"
+             Title="Book Viewer"
+             BackgroundColor="#1a1a2e">
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Grid x:Name="ToolbarGrid" Grid.Row="0" BackgroundColor="#16213e" Padding="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Button x:Name="OpenButton" 
+                    Grid.Column="0"
+                    Text="📂 Open" 
+                    Clicked="OnOpenBookClicked"
+                    BackgroundColor="#0f3460"
+                    TextColor="White"
+                    Padding="10,6"/>
+
+            <Button x:Name="DownloadButton" 
+                    Grid.Column="1"
+                    Text="⬇️ Download" 
+                    Clicked="OnDownloadClicked"
+                    BackgroundColor="#27ae60"
+                    TextColor="White"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
+
+            <Grid Grid.Column="2" HorizontalOptions="End">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="PrevButton" 
+                        Grid.Column="0"
+                        Text="◀" 
+                        Clicked="OnPrevClicked"
+                        BackgroundColor="#34495e"
+                        TextColor="White"
+                        IsEnabled="False"
+                        Padding="10,6"/>
+
+                <Label x:Name="PageInfoLabel" 
+                       Grid.Column="1"
+                       Text="0 / 0"
+                       TextColor="#8899bb"
+                       FontSize="14"
+                       VerticalOptions="Center"
+                       HorizontalTextAlignment="Center"
+                       Padding="8,0"
+                       WidthRequest="60"/>
+
+                <Button x:Name="NextButton" 
+                        Grid.Column="2"
+                        Text="▶" 
+                        Clicked="OnNextClicked"
+                        BackgroundColor="#34495e"
+                        TextColor="White"
+                        IsEnabled="False"
+                        Padding="10,6"/>
+            </Grid>
+
+            <!-- Teacher Notes Button -->
+            <Button x:Name="TeacherNotesButton" 
+                    Grid.Column="3"
+                    Text="👨‍🏫 Teacher Notes" 
+                    Clicked="OnTeacherNotesClicked"
+                    BackgroundColor="#3498db"
+                    TextColor="White"
+                    IsEnabled="False"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
+
+            <!-- Student Answers Button -->
+            <Button x:Name="StudentAnswersButton" 
+                    Grid.Column="4"
+                    Text="👨‍🎓 Student Answers" 
+                    Clicked="OnStudentAnswersClicked"
+                    BackgroundColor="#2ecc71"
+                    TextColor="White"
+                    IsEnabled="False"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
+
+            <Button x:Name="DecryptButton" 
+                    Grid.Column="5"
+                    Text="🔓 Decrypt" 
+                    Clicked="OnDecryptClicked"
+                    BackgroundColor="#f39c12"
+                    TextColor="White"
+                    IsEnabled="False"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
+
+            <Button x:Name="SideBySideButton" 
+                    Grid.Column="6"
+                    Text="📄 1/2" 
+                    Clicked="OnSideBySideClicked"
+                    BackgroundColor="#2c3e50"
+                    TextColor="White"
+                    IsEnabled="False"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
+
+            <!-- Zoom Controls -->
+            <Button x:Name="ZoomOutButton" 
+                    Grid.Column="7"
+                    Text="🔍-" 
+                    Clicked="OnZoomOutClicked"
+                    BackgroundColor="#2c3e50"
+                    TextColor="White"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
+
+            <Label x:Name="ZoomLabel" 
+                   Grid.Column="8"
+                   Text="1.0x"
+                   TextColor="#8899bb"
+                   FontSize="14"
+                   VerticalOptions="Center"
+                   HorizontalTextAlignment="Center"
+                   Padding="4,0"
+                   WidthRequest="40"/>
+
+            <Button x:Name="ZoomInButton" 
+                    Grid.Column="9"
+                    Text="🔍+" 
+                    Clicked="OnZoomInClicked"
+                    BackgroundColor="#2c3e50"
+                    TextColor="White"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
+        </Grid>
+
+        <!-- Content Area - Stacked WebViews (overlay mode) -->
+        <Grid Grid.Row="1" BackgroundColor="#2d2d44">
+            <!-- Bottom: Base content -->
+            <WebView x:Name="ContentWebView" 
+                     BackgroundColor="#2d2d44"/>
+            
+            <!-- Top: Teacher Notes (transparent) -->
+            <WebView x:Name="TeacherWebView" 
+                     BackgroundColor="Transparent"
+                     IsVisible="False"/>
+            
+            <!-- Top: Student Answers (transparent) -->
+            <WebView x:Name="StudentWebView" 
+                     BackgroundColor="Transparent"
+                     IsVisible="False"/>
+        </Grid>
+
+        <!-- Status Bar -->
+        <Grid Grid.Row="2" BackgroundColor="#16213e" Padding="8,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Label x:Name="StatusLabel" 
+                   Grid.Column="0"
+                   Text="Ready"
+                   TextColor="#8899bb"
+                   FontSize="12"/>
+
+            <Label x:Name="BookTitleLabel" 
+                   Grid.Column="1"
+                   Text="No book"
+                   TextColor="#8899bb"
+                   FontSize="12"/>
+        </Grid>
+    </Grid>
+</ContentPage>
