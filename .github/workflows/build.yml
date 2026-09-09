@@ -38,7 +38,7 @@ jobs:
       - name: Build Android APK
         run: |
           dotnet publish ./BookViewer.Maui.csproj \
-            -p:TargetFramework=net9.0-android \
+            -p:TargetFrameworks=net9.0-android \
             -c Debug \
             -p:AndroidPackageFormat=apk \
             -o ./publish-android
@@ -82,7 +82,7 @@ jobs:
       - name: Build iOS IPA
         run: |
           dotnet publish ./BookViewer.Maui.csproj \
-            -p:TargetFramework=net9.0-ios \
+            -p:TargetFrameworks=net9.0-ios \
             -c Debug \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:EnableCodeSigning=false \
