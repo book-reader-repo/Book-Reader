@@ -21,6 +21,16 @@ public partial class MainPage : ContentPage
     private string _currentTeacherHtml = "";
     private string _currentStudentHtml = "";
     private string _currentViewMode = "content"; // content, teacher, student
+    private List<BookInfo> _downloadedBooks = new();
+
+    public class BookInfo
+    {
+        public string BookPath { get; set; } = "";
+        public string BookId { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string CoverPath { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+    }
 
     // File logger for MainPage
     private static readonly object _logLock = new object();
@@ -81,6 +91,9 @@ public partial class MainPage : ContentPage
         TeacherWebView.BackgroundColor = Colors.Transparent;
         StudentWebView.BackgroundColor = Colors.Transparent;
 
+        // Setup book picker
+        BookPicker.SelectedIndexChanged += OnBookPickerSelectedIndexChanged;
+
         _bookService.OnPagesLoaded += (s, pages) =>
             Device.BeginInvokeOnMainThread(UpdateUI);
 
@@ -118,11 +131,9 @@ public partial class MainPage : ContentPage
                     ? Color.FromArgb("#3498db") 
                     : Color.FromArgb("#2c3e50");
                 
-                // Update column widths for side-by-side
                 LeftColumn.Width = enabled ? new GridLength(1, GridUnitType.Star) : new GridLength(1, GridUnitType.Star);
                 RightColumn.Width = enabled ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
                 
-                // Update display
                 UpdateDisplay();
                 
                 StatusLabel.Text = enabled ? "Side-by-side mode" : "Single page mode";
@@ -134,6 +145,127 @@ public partial class MainPage : ContentPage
             {
                 ZoomLabel.Text = $"{zoom:F1}x";
             });
+
+        // Load downloaded books
+        LoadDownloadedBooks();
+    }
+
+    private void LoadDownloadedBooks()
+    {
+        try
+        {
+            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
+            
+            if (!Directory.Exists(booksDir))
+            {
+                Directory.CreateDirectory(booksDir);
+                return;
+            }
+
+            _downloadedBooks.Clear();
+            
+            foreach (var dir in Directory.GetDirectories(booksDir))
+            {
+                var bookId = Path.GetFileName(dir);
+                var bookXmlPath = Path.Combine(dir, "book.xml");
+                
+                if (!File.Exists(bookXmlPath))
+                    continue;
+
+                try
+                {
+                    string title = bookId;
+                    string content = File.ReadAllText(bookXmlPath);
+                    var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
+                    if (titleMatch.Success)
+                    {
+                        title = titleMatch.Groups[1].Value;
+                    }
+
+                    string coverPath = "";
+                    var coverFile = Directory.GetFiles(dir, $"{bookId}.png").FirstOrDefault();
+                    if (string.IsNullOrEmpty(coverFile))
+                    {
+                        coverFile = Directory.GetFiles(dir, "cover.png").FirstOrDefault();
+                    }
+                    if (string.IsNullOrEmpty(coverFile))
+                    {
+                        coverFile = Directory.GetFiles(dir, "*.png").FirstOrDefault();
+                    }
+                    
+                    if (!string.IsNullOrEmpty(coverFile))
+                    {
+                        coverPath = coverFile;
+                    }
+
+                    _downloadedBooks.Add(new BookInfo
+                    {
+                        BookPath = dir,
+                        BookId = bookId,
+                        Title = title,
+                        CoverPath = coverPath,
+                        DisplayName = $"{title} ({bookId})"
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error loading book {bookId}: {ex.Message}");
+                }
+            }
+
+            // Update picker
+            BookPicker.ItemsSource = _downloadedBooks.Select(b => b.DisplayName).ToList();
+            BookPicker.SelectedIndex = -1;
+            
+            Log($"Found {_downloadedBooks.Count} downloaded books");
+        }
+        catch (Exception ex)
+        {
+            Log($"Error loading downloaded books: {ex.Message}");
+        }
+    }
+
+    private async void OnBookPickerSelectedIndexChanged(object sender, EventArgs e)
+    {
+        try
+        {
+            if (BookPicker.SelectedIndex < 0 || BookPicker.SelectedIndex >= _downloadedBooks.Count)
+                return;
+
+            var bookInfo = _downloadedBooks[BookPicker.SelectedIndex];
+            Log($"Selected book: {bookInfo.DisplayName}");
+            
+            var success = await _bookService.LoadBookAsync(bookInfo.BookPath);
+            if (success)
+            {
+                TeacherNotesButton.IsEnabled = true;
+                StudentAnswersButton.IsEnabled = true;
+                DecryptButton.IsEnabled = true;
+                SideBySideButton.IsEnabled = true;
+                ViewModeButton.IsEnabled = true;
+                
+                _currentViewMode = "content";
+                _showTeacherNotes = false;
+                _showStudentAnswers = false;
+                UpdateViewModeButton();
+                UpdateTeacherButton();
+                UpdateStudentButton();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Error loading selected book: {ex.Message}");
+            await DisplayAlert("Error", $"Failed to load book: {ex.Message}", "OK");
+        }
+    }
+
+    private async void OnRefreshBooksClicked(object sender, EventArgs e)
+    {
+        Log("=== REFRESH BOOKS CLICKED ===");
+        LoadDownloadedBooks();
+        StatusLabel.Text = $"Found {_downloadedBooks.Count} books";
+        await Task.CompletedTask;
     }
 
     private async void LoadTeacherView()
