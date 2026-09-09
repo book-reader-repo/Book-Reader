@@ -153,11 +153,11 @@
                     Margin="4,0,0,0"/>
         </Grid>
 
-        <!-- Content Area - Stacked WebViews (overlay mode) -->
+        <!-- Content Area - Stacked WebViews with transparent backgrounds -->
         <Grid Grid.Row="1" BackgroundColor="#2d2d44">
             <!-- Bottom: Base content -->
             <WebView x:Name="ContentWebView" 
-                     BackgroundColor="#2d2d44"/>
+                     BackgroundColor="Transparent"/>
             
             <!-- Top: Teacher Notes (transparent) -->
             <WebView x:Name="TeacherWebView" 
