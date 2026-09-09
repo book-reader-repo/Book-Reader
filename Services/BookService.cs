@@ -179,14 +179,14 @@ namespace BookViewer
                 Log($"Temp folder: {_tempFolder}");
                 
                 var bookXmlPath = Path.Combine(folderPath, "book.xml");
-
+        
                 if (!File.Exists(bookXmlPath))
                 {
                     Log($"ERROR: book.xml not found at: {bookXmlPath}");
                     OnStatusChanged?.Invoke(this, "book.xml not found");
                     return false;
                 }
-
+        
                 var folderName = Path.GetFileName(folderPath);
                 var bookIdMatch = Regex.Match(folderName, @"book_(\d+)");
                 if (bookIdMatch.Success)
@@ -194,10 +194,10 @@ namespace BookViewer
                     _currentBookUid = bookIdMatch.Groups[1].Value;
                     Log($"Extracted book ID from folder: {_currentBookUid}");
                 }
-
+        
                 var content = await File.ReadAllTextAsync(bookXmlPath);
                 Log($"book.xml loaded, size: {content.Length} bytes");
-
+        
                 if (string.IsNullOrEmpty(_currentBookUid))
                 {
                     var uidMatch = Regex.Match(content, @"id=""([^""]+)""");
@@ -207,7 +207,8 @@ namespace BookViewer
                         Log($"Extracted Book UID from book.xml: {_currentBookUid}");
                     }
                 }
-
+        
+                bool bookXmlDecrypted = false;
                 if (_decryptionService.IsEncrypted(content))
                 {
                     Log("book.xml is encrypted, decrypting...");
@@ -222,28 +223,78 @@ namespace BookViewer
                     content = _decryptionService.DecryptBookFile(content, _currentBookUid);
                     Log($"book.xml decrypted, size: {content.Length} bytes");
                     await File.WriteAllTextAsync(bookXmlPath, content);
+                    bookXmlDecrypted = true;
                 }
-
+                else
+                {
+                    Log("book.xml is already decrypted");
+                }
+        
                 _bookTitle = "Unknown Book";
                 var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
                 if (titleMatch.Success) _bookTitle = titleMatch.Groups[1].Value;
                 Log($"Book title: {_bookTitle}");
                 Log($"Book UID: {_currentBookUid}");
-
+        
                 OnBookLoaded?.Invoke(this, _bookTitle);
-
-                await DecryptBookFilesAsync(folderPath);
-
+        
+                // Only decrypt files if book.xml was encrypted (or if we force decryption)
+                if (bookXmlDecrypted)
+                {
+                    await DecryptBookFilesAsync(folderPath);
+                }
+                else
+                {
+                    // Check if any HTML files are still encrypted
+                    bool needsDecryption = false;
+                    var sampleHtmlFiles = Directory.GetFiles(folderPath, "steps_*.html", SearchOption.AllDirectories).Take(3).ToList();
+                    foreach (var sampleFile in sampleHtmlFiles)
+                    {
+                        try
+                        {
+                            var sampleContent = await File.ReadAllTextAsync(sampleFile);
+                            // If it doesn't contain HTML tags or looks encrypted
+                            if (!sampleContent.Contains("<") || !sampleContent.Contains(">") || 
+                                !(sampleContent.Contains("</") || sampleContent.Contains("/>")))
+                            {
+                                needsDecryption = true;
+                                break;
+                            }
+                            // Check if it contains actual content with classes/divs
+                            if (!sampleContent.Contains("class=") && !sampleContent.Contains("<div"))
+                            {
+                                needsDecryption = true;
+                                break;
+                            }
+                        }
+                        catch
+                        {
+                            needsDecryption = true;
+                            break;
+                        }
+                    }
+        
+                    if (needsDecryption)
+                    {
+                        Log("Some files appear to still be encrypted, running decryption...");
+                        await DecryptBookFilesAsync(folderPath);
+                    }
+                    else
+                    {
+                        Log("All files appear to be already decrypted, skipping decryption");
+                    }
+                }
+        
                 _pageFiles.Clear();
-
+        
                 var stepsFiles = Directory.GetFiles(folderPath, "steps_*.html", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(folderPath, "step_*.html", SearchOption.AllDirectories))
                     .Where(f => IsPureStepsFile(Path.GetFileName(f)))
                     .Distinct()
                     .ToList();
-
+        
                 Log($"Found {stepsFiles.Count} step files");
-
+        
                 _pageFiles = stepsFiles
                     .GroupBy(f => Path.GetDirectoryName(f) ?? "")
                     .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
@@ -254,24 +305,24 @@ namespace BookViewer
                          .Select(x => x.Path)
                     )
                     .ToList();
-
+        
                 Log($"Sorted {_pageFiles.Count} page files");
-
+        
                 foreach (var file in _pageFiles.Take(5))
                 {
                     Log($"  Page: {Path.GetFileName(file)}");
                 }
                 if (_pageFiles.Count > 5) Log($"  ... and {_pageFiles.Count - 5} more");
-
+        
                 OnPagesLoaded?.Invoke(this, _pageFiles);
-
+        
                 if (_pageFiles.Count > 0)
                 {
                     _currentPageIndex = 0;
                     Log($"Loading first page: {Path.GetFileName(_pageFiles[0])}");
                     await LoadPageAsync(0);
                 }
-
+        
                 OnStatusChanged?.Invoke(this, $"Loaded: {_bookTitle} ({_pageFiles.Count} pages)");
                 Log($"=== BOOK LOADED SUCCESSFULLY ===");
                 Log($"Log file: {GetLogFilePath()}");
@@ -285,7 +336,6 @@ namespace BookViewer
                 return false;
             }
         }
-
         // ============================================================
         // Get Red Answer Content ONLY - For overlay WebView
         // ============================================================
@@ -1011,9 +1061,9 @@ namespace BookViewer
                 return "";
             }
         }
-
+        
         // ============================================================
-        // Decrypt all files in the book directory
+        // Decrypt all files in the book directory - Only if needed
         // ============================================================
         private async Task DecryptBookFilesAsync(string folderPath)
         {
@@ -1025,35 +1075,108 @@ namespace BookViewer
                 var htmlFiles = Directory.GetFiles(folderPath, "*.html", SearchOption.AllDirectories).ToList();
                 var xmlFiles = Directory.GetFiles(folderPath, "*.xml", SearchOption.AllDirectories).ToList();
                 var htmFiles = Directory.GetFiles(folderPath, "*.htm", SearchOption.AllDirectories).ToList();
-
+        
                 Log($"Found {htmlFiles.Count} HTML files, {xmlFiles.Count} XML files, {htmFiles.Count} HTM files");
-
+        
                 int bookKey = _decryptionService.CalculateKey(_currentBookUid);
                 Log($"Book Key: {bookKey}");
-
+        
                 int decryptedCount = 0;
                 int skippedCount = 0;
-
+                int alreadyDecryptedCount = 0;
+        
+                // Check if HTML files are already decrypted by sampling one file
+                bool needsDecryption = false;
+                if (htmlFiles.Count > 0)
+                {
+                    var sampleFile = htmlFiles[0];
+                    var sampleContent = await File.ReadAllTextAsync(sampleFile);
+                    // If the file contains HTML tags and doesn't look encrypted, skip decryption
+                    if (sampleContent.Contains("<") && sampleContent.Contains(">") && 
+                        (sampleContent.Contains("</") || sampleContent.Contains("/>")))
+                    {
+                        // Check if it's actually decrypted content (contains divs with classes, etc.)
+                        if (sampleContent.Contains("class=") || sampleContent.Contains("<div"))
+                        {
+                            needsDecryption = false;
+                            Log($"✅ Sample file {Path.GetFileName(sampleFile)} appears to be already decrypted");
+                        }
+                        else
+                        {
+                            needsDecryption = true;
+                        }
+                    }
+                    else
+                    {
+                        needsDecryption = true;
+                    }
+                }
+                else
+                {
+                    needsDecryption = true;
+                }
+        
+                // If all HTML files appear to be already decrypted, skip decryption entirely
+                if (!needsDecryption && htmlFiles.Count > 0)
+                {
+                    Log("✅ All HTML files appear to be already decrypted. Skipping decryption.");
+                    
+                    // Still need to decrypt XML/HTM files if they're encrypted
+                    Log("📄 Checking XML/HTM files...");
+                    foreach (var file in allXmlAndHtmFiles)
+                    {
+                        try
+                        {
+                            var fileName = Path.GetFileName(file);
+                            var content = await File.ReadAllTextAsync(file);
+        
+                            if (_decryptionService.IsEncrypted(content))
+                            {
+                                Log($"  🔓 Decrypting XML/HTM: {fileName}");
+                                string decryptedContent = _decryptionService.DecryptXmlOrHtm(content, fileName);
+                                await File.WriteAllTextAsync(file, decryptedContent);
+                                decryptedCount++;
+                                Log($"    ✅ Decrypted: {fileName}");
+                            }
+                            else
+                            {
+                                alreadyDecryptedCount++;
+                                Log($"  ⏭️  {fileName}: Already decrypted, skipping");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
+                        }
+                    }
+                    
+                    Log($"=== Summary ===");
+                    Log($"✅ XML/HTM decrypted: {decryptedCount} files");
+                    Log($"⏭️  XML/HTM skipped (already decrypted): {alreadyDecryptedCount} files");
+                    Log($"⏭️  HTML skipped (already decrypted): {htmlFiles.Count} files");
+                    return;
+                }
+        
                 // Decrypt XML and HTM files
                 Log("📄 Processing XML and HTM files...");
                 var allXmlAndHtmFiles = new List<string>();
                 allXmlAndHtmFiles.AddRange(xmlFiles);
                 allXmlAndHtmFiles.AddRange(htmFiles);
-
+        
                 foreach (var file in allXmlAndHtmFiles)
                 {
                     try
                     {
                         var fileName = Path.GetFileName(file);
                         var content = await File.ReadAllTextAsync(file);
-
+        
                         if (!_decryptionService.IsEncrypted(content))
                         {
                             Log($"  ⏭️  {fileName}: Already decrypted, skipping");
-                            skippedCount++;
+                            alreadyDecryptedCount++;
                             continue;
                         }
-
+        
                         Log($"  🔓 Decrypting: {fileName}");
                         string decryptedContent = _decryptionService.DecryptXmlOrHtm(content, fileName);
                         await File.WriteAllTextAsync(file, decryptedContent);
@@ -1065,23 +1188,36 @@ namespace BookViewer
                         Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
                     }
                 }
-
-                Log($"XML/HTM files: {decryptedCount} decrypted, {skippedCount} skipped");
+        
+                Log($"XML/HTM files: {decryptedCount} decrypted, {alreadyDecryptedCount} already decrypted");
                 Log("");
-
-                // Decrypt HTML files
+        
+                // Decrypt HTML files (only if they need it)
                 Log("📄 Processing HTML files...");
                 Log($"Using Book Key: {bookKey}");
-
+        
                 int htmlDecryptedCount = 0;
-
+                int htmlSkippedCount = 0;
+        
                 foreach (var file in htmlFiles)
                 {
                     try
                     {
                         var fileName = Path.GetFileName(file);
                         var content = await File.ReadAllTextAsync(file);
-
+        
+                        // Check if file is already decrypted (contains HTML tags)
+                        bool isDecrypted = content.Contains("<") && content.Contains(">") && 
+                                           (content.Contains("</") || content.Contains("/>")) &&
+                                           (content.Contains("class=") || content.Contains("<div") || content.Contains("id="));
+        
+                        if (isDecrypted)
+                        {
+                            Log($"  ⏭️  {fileName}: Already decrypted, skipping");
+                            htmlSkippedCount++;
+                            continue;
+                        }
+        
                         Log($"  🔓 Decrypting HTML: {fileName} (using Book Key: {bookKey})");
                         string decryptedContent = _decryptionService.DecryptWithKey(content, bookKey);
                         await File.WriteAllTextAsync(file, decryptedContent);
@@ -1101,14 +1237,15 @@ namespace BookViewer
                         Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
                     }
                 }
-
-                Log($"HTML files: {htmlDecryptedCount} decrypted");
+        
+                Log($"HTML files: {htmlDecryptedCount} decrypted, {htmlSkippedCount} already decrypted");
                 Log("");
-
+        
                 Log("=== Summary ===");
                 Log($"✅ XML/HTM decrypted: {decryptedCount} files");
-                Log($"⏭️  XML/HTM skipped: {skippedCount} files");
+                Log($"⏭️  XML/HTM skipped (already decrypted): {alreadyDecryptedCount} files");
                 Log($"✅ HTML decrypted: {htmlDecryptedCount} files");
+                Log($"⏭️  HTML skipped (already decrypted): {htmlSkippedCount} files");
             }
             catch (Exception ex)
             {
