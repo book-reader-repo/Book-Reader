@@ -23,18 +23,23 @@ jobs:
       - name: Select Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode_26.5.app || sudo xcode-select -s /Applications/Xcode.app || true
+          xcodebuild -version
 
       - name: Install MAUI iOS Workload
         run: |
-          dotnet workload install maui-ios --source https://api.nuget.org/v3/index.json
+          dotnet workload clean || true
+          for i in 1 2 3; do
+            dotnet workload install maui-ios --source https://api.nuget.org/v3/index.json && break || sleep 10
+          done
+          dotnet workload list
 
       - name: Restore Dependencies
         run: |
-          dotnet restore
+          dotnet restore ./BookViewer.Maui.csproj
 
-      - name: Build iOS App (No Archive)
+      - name: Build iOS IPA
         run: |
-          dotnet publish BookViewer.Maui.csproj -f net9.0-ios -c Release \
+          dotnet publish ./BookViewer.Maui.csproj -f net9.0-ios -c Release \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:EnableCodeSigning=false \
             -p:BuildIpa=true \
@@ -43,6 +48,6 @@ jobs:
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iOS-App-Package
+          name: iOS-IPA
           path: ./publish-output/*.ipa
           if-no-files-found: error
