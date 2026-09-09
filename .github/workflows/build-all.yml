@@ -29,7 +29,7 @@ jobs:
 
       - name: Restore Dependencies
         run: |
-          dotnet restore ./BookViewer.Maui.csproj
+          dotnet restore ./BookViewer.Maui.csproj /p:TargetFramework=net9.0-android
 
       - name: Build Android APK
         run: |
@@ -71,7 +71,7 @@ jobs:
 
       - name: Restore Dependencies
         run: |
-          dotnet restore ./BookViewer.Maui.csproj
+          dotnet restore ./BookViewer.Maui.csproj /p:TargetFramework=net9.0-ios
 
       - name: Build iOS IPA
         run: |
