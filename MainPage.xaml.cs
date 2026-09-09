@@ -16,8 +16,10 @@ public partial class MainPage : ContentPage
     private readonly BookService _bookService = new();
     private bool _showTeacherNotes = false;
     private bool _showStudentAnswers = false;
+    private string _currentContentHtml = "";
     private string _currentTeacherHtml = "";
     private string _currentStudentHtml = "";
+    private string _currentViewMode = "content"; // content, teacher, student
 
     // File logger for MainPage
     private static readonly object _logLock = new object();
@@ -72,15 +74,6 @@ public partial class MainPage : ContentPage
         InitializeComponent();
         Log("=== MAIN PAGE INITIALIZED ===");
         Log($"Log file: {GetLogFilePath()}");
-    
-        ContentWebView.BackgroundColor = Colors.Transparent;
-        TeacherWebView.BackgroundColor = Colors.Transparent;
-        StudentWebView.BackgroundColor = Colors.Transparent;
-        
-        // Make WebViews transparent
-        ContentWebView.BackgroundColor = Colors.Transparent;
-        TeacherWebView.BackgroundColor = Colors.Transparent;
-        StudentWebView.BackgroundColor = Colors.Transparent;
 
         _bookService.OnPagesLoaded += (s, pages) =>
             Device.BeginInvokeOnMainThread(UpdateUI);
@@ -92,23 +85,15 @@ public partial class MainPage : ContentPage
                 Log($"=== PAGE CHANGED ===");
                 Log($"Content length: {content?.Length ?? 0}");
                 
-                // Main content goes to bottom WebView
+                // Store and display content
+                _currentContentHtml = content;
+                _currentViewMode = "content";
+                UpdateViewModeButton();
                 ContentWebView.Source = new HtmlWebViewSource { Html = content };
                 
-                // Clear overlay WebViews
-                TeacherWebView.IsVisible = false;
-                StudentWebView.IsVisible = false;
-                _currentTeacherHtml = "";
-                _currentStudentHtml = "";
-                
-                // Load teacher notes if available
-                LoadTeacherNotes();
-                
-                // Load student answers if available
-                LoadStudentAnswers();
-                
-                // Apply visibility states
-                UpdateOverlayVisibility();
+                // Preload teacher and student views
+                LoadTeacherView();
+                LoadStudentView();
             });
         };
 
@@ -135,7 +120,7 @@ public partial class MainPage : ContentPage
             });
     }
 
-    private async void LoadTeacherNotes()
+    private async void LoadTeacherView()
     {
         try
         {
@@ -143,20 +128,19 @@ public partial class MainPage : ContentPage
             {
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
                 var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileName(filePath) ?? "";
                 
-                // Get the red answer content only
+                // Get the red answer content
                 string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "teacherNotes");
                 
                 if (!string.IsNullOrEmpty(redContent))
                 {
-                    // Get font CSS only (no background image needed for transparent overlay)
+                    // Get background image and font CSS
+                    string bgImage = _bookService.GetStepBackgroundImage(filePath);
                     string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
                     
-                    // Build the HTML for the overlay with transparent background
-                    _currentTeacherHtml = BuildOverlayHtml("", redContent, fileName, fontCss);
-                    TeacherWebView.Source = new HtmlWebViewSource { Html = _currentTeacherHtml };
-                    Log($"Teacher notes loaded, length: {_currentTeacherHtml.Length}");
+                    // Build the HTML for teacher view
+                    _currentTeacherHtml = BuildTeacherViewHtml(bgImage, redContent, Path.GetFileName(filePath), fontCss);
+                    Log($"Teacher view loaded, length: {_currentTeacherHtml.Length}");
                 }
                 else
                 {
@@ -167,11 +151,11 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            Log($"Error loading teacher notes: {ex.Message}");
+            Log($"Error loading teacher view: {ex.Message}");
         }
     }
-    
-    private async void LoadStudentAnswers()
+
+    private async void LoadStudentView()
     {
         try
         {
@@ -179,20 +163,19 @@ public partial class MainPage : ContentPage
             {
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
                 var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileName(filePath) ?? "";
                 
-                // Get the red answer content only
+                // Get the red answer content
                 string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "studentAnswers");
                 
                 if (!string.IsNullOrEmpty(redContent))
                 {
-                    // Get font CSS only (no background image needed for transparent overlay)
+                    // Get background image and font CSS
+                    string bgImage = _bookService.GetStepBackgroundImage(filePath);
                     string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
                     
-                    // Build the HTML for the overlay with transparent background
-                    _currentStudentHtml = BuildOverlayHtml("", redContent, fileName, fontCss);
-                    StudentWebView.Source = new HtmlWebViewSource { Html = _currentStudentHtml };
-                    Log($"Student answers loaded, length: {_currentStudentHtml.Length}");
+                    // Build the HTML for student view
+                    _currentStudentHtml = BuildStudentViewHtml(bgImage, redContent, Path.GetFileName(filePath), fontCss);
+                    Log($"Student view loaded, length: {_currentStudentHtml.Length}");
                 }
                 else
                 {
@@ -203,17 +186,17 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            Log($"Error loading student answers: {ex.Message}");
+            Log($"Error loading student view: {ex.Message}");
         }
     }
 
-    private string BuildOverlayHtml(string bgImage, string redContent, string fileName, string fontCss)
+    private string BuildTeacherViewHtml(string bgImage, string redContent, string fileName, string fontCss)
     {
         double zoom = _bookService.CurrentZoom;
         
         if (string.IsNullOrEmpty(bgImage))
         {
-            bgImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='transparent'/%3E%3C/svg%3E";
+            bgImage = GetPlaceholderImage();
         }
 
         return $@"
@@ -222,7 +205,7 @@ public partial class MainPage : ContentPage
         <head>
             <meta charset='UTF-8'>
             <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
-            <title>{fileName}</title>
+            <title>{fileName} - Teacher Notes</title>
             <style>
                 {fontCss}
                 * {{
@@ -234,7 +217,7 @@ public partial class MainPage : ContentPage
                     width: 100%;
                     height: 100%;
                     overflow: auto;
-                    background: transparent !important;
+                    background: #1a1a2e;
                     -webkit-font-smoothing: antialiased;
                     -moz-osx-font-smoothing: grayscale;
                 }}
@@ -246,7 +229,6 @@ public partial class MainPage : ContentPage
                     padding: 10px;
                     margin: 0;
                     overflow: auto;
-                    background: transparent !important;
                 }}
                 .page-wrapper {{
                     display: flex;
@@ -262,7 +244,8 @@ public partial class MainPage : ContentPage
                     width: 1024px;
                     height: 1344px;
                     flex-shrink: 0;
-                    background: transparent !important;
+                    background: #2d2d44;
+                    box-shadow: 0 0 30px rgba(0,0,0,0.5);
                     overflow: hidden;
                     border-radius: 4px;
                     transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
@@ -279,7 +262,7 @@ public partial class MainPage : ContentPage
                     z-index: 1;
                     image-rendering: auto;
                     image-rendering: -webkit-optimize-contrast;
-                    opacity: 0.01;
+                    opacity: 0.5;
                 }}
                 .content-overlay {{
                     position: absolute;
@@ -295,20 +278,27 @@ public partial class MainPage : ContentPage
                     position: absolute !important;
                 }}
                 
-                /* Highlight for teacher notes */
+                /* Teacher notes highlight */
                 .tbnote {{
-                    background: rgba(255, 255, 0, 0.25);
-                    border: 2px solid #3498db;
+                    background: rgba(255, 255, 0, 0.3);
+                    border: 3px solid #3498db;
                     border-radius: 4px;
-                    padding: 2px;
+                    padding: 3px;
                 }}
                 
-                /* Highlight for student answers */
-                .sa {{
-                    background: rgba(0, 255, 0, 0.25);
-                    border: 2px solid #2ecc71;
-                    border-radius: 4px;
-                    padding: 2px;
+                /* Teacher notes label */
+                .teacher-label {{
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: rgba(52, 152, 219, 0.9);
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    font-size: 14px;
+                    font-family: Arial, sans-serif;
+                    z-index: 100;
+                    pointer-events: none;
                 }}
                 
                 ::-webkit-scrollbar {{
@@ -328,6 +318,7 @@ public partial class MainPage : ContentPage
             </style>
         </head>
         <body>
+            <div class='teacher-label'>👨‍🏫 Teacher Notes</div>
             <div class='page-wrapper'>
                 <div class='page-container'>
                     <img class='background-img' src='{bgImage}' alt='Background' />
@@ -340,67 +331,250 @@ public partial class MainPage : ContentPage
         </html>";
     }
 
-    private void UpdateOverlayVisibility()
+    private string BuildStudentViewHtml(string bgImage, string redContent, string fileName, string fontCss)
     {
-        Device.BeginInvokeOnMainThread(() =>
+        double zoom = _bookService.CurrentZoom;
+        
+        if (string.IsNullOrEmpty(bgImage))
         {
-            TeacherWebView.IsVisible = _showTeacherNotes && !string.IsNullOrEmpty(_currentTeacherHtml);
-            StudentWebView.IsVisible = _showStudentAnswers && !string.IsNullOrEmpty(_currentStudentHtml);
-            
-            Log($"Visibility - Teacher: {TeacherWebView.IsVisible}, Student: {StudentWebView.IsVisible}");
-        });
+            bgImage = GetPlaceholderImage();
+        }
+
+        return $@"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
+            <title>{fileName} - Student Answers</title>
+            <style>
+                {fontCss}
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                html, body {{
+                    width: 100%;
+                    height: 100%;
+                    overflow: auto;
+                    background: #1a1a2e;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                }}
+                body {{
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    padding: 10px;
+                    margin: 0;
+                    overflow: auto;
+                }}
+                .page-wrapper {{
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    width: 100%;
+                    height: 100%;
+                    min-height: 100vh;
+                    overflow: auto;
+                }}
+                .page-container {{
+                    position: relative;
+                    width: 1024px;
+                    height: 1344px;
+                    flex-shrink: 0;
+                    background: #2d2d44;
+                    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+                    overflow: hidden;
+                    border-radius: 4px;
+                    transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
+                    transform-origin: center center;
+                }}
+                .background-img {{
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    object-fit: contain;
+                    pointer-events: none;
+                    z-index: 1;
+                    image-rendering: auto;
+                    image-rendering: -webkit-optimize-contrast;
+                    opacity: 0.5;
+                }}
+                .content-overlay {{
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 2;
+                    overflow: hidden;
+                    pointer-events: auto;
+                }}
+                .content-overlay > * {{
+                    position: absolute !important;
+                }}
+                
+                /* Student answers highlight */
+                .sa {{
+                    background: rgba(0, 255, 0, 0.3);
+                    border: 3px solid #2ecc71;
+                    border-radius: 4px;
+                    padding: 3px;
+                }}
+                
+                /* Student answers label */
+                .student-label {{
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: rgba(46, 204, 113, 0.9);
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    font-size: 14px;
+                    font-family: Arial, sans-serif;
+                    z-index: 100;
+                    pointer-events: none;
+                }}
+                
+                ::-webkit-scrollbar {{
+                    width: 6px;
+                    height: 6px;
+                }}
+                ::-webkit-scrollbar-track {{
+                    background: #1a1a2e;
+                }}
+                ::-webkit-scrollbar-thumb {{
+                    background: #2d2d44;
+                    border-radius: 3px;
+                }}
+                ::-webkit-scrollbar-thumb:hover {{
+                    background: #3d3d54;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class='student-label'>👨‍🎓 Student Answers</div>
+            <div class='page-wrapper'>
+                <div class='page-container'>
+                    <img class='background-img' src='{bgImage}' alt='Background' />
+                    <div class='content-overlay'>
+                        {redContent}
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>";
     }
 
-    private void UpdateTeacherButton()
+    private string GetPlaceholderImage()
     {
-        if (TeacherNotesButton != null)
-        {
-            TeacherNotesButton.Text = _showTeacherNotes ? "👨‍🏫 Hide Notes" : "👨‍🏫 Teacher Notes";
-            TeacherNotesButton.BackgroundColor = _showTeacherNotes 
-                ? Color.FromArgb("#e74c3c") 
-                : Color.FromArgb("#3498db");
-            Log($"Teacher button updated: {TeacherNotesButton.Text}");
-        }
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%232d2d44'/%3E%3C/svg%3E";
     }
 
-    private void UpdateStudentButton()
+    private void UpdateViewModeButton()
     {
-        if (StudentAnswersButton != null)
+        string text = _currentViewMode switch
         {
-            StudentAnswersButton.Text = _showStudentAnswers ? "👨‍🎓 Hide Answers" : "👨‍🎓 Student Answers";
-            StudentAnswersButton.BackgroundColor = _showStudentAnswers 
-                ? Color.FromArgb("#e74c3c") 
-                : Color.FromArgb("#2ecc71");
-            Log($"Student button updated: {StudentAnswersButton.Text}");
+            "content" => "📄 Content",
+            "teacher" => "👨‍🏫 Teacher",
+            "student" => "👨‍🎓 Student",
+            _ => "📄 Content"
+        };
+        ViewModeButton.Text = text;
+        
+        // Update button color based on mode
+        ViewModeButton.BackgroundColor = _currentViewMode switch
+        {
+            "content" => Color.FromArgb("#2c3e50"),
+            "teacher" => Color.FromArgb("#3498db"),
+            "student" => Color.FromArgb("#2ecc71"),
+            _ => Color.FromArgb("#2c3e50")
+        };
+    }
+
+    private void OnViewModeClicked(object sender, EventArgs e)
+    {
+        Log("=== VIEW MODE CLICKED ===");
+        
+        // Cycle through modes: content -> teacher -> student -> content
+        _currentViewMode = _currentViewMode switch
+        {
+            "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
+            "teacher" when (!string.IsNullOrEmpty(_currentStudentHtml)) => "student",
+            "student" => "content",
+            "content" => "content",
+            _ => "content"
+        };
+        
+        UpdateViewMode();
+    }
+
+    private void UpdateViewMode()
+    {
+        string html = _currentViewMode switch
+        {
+            "content" => _currentContentHtml,
+            "teacher" => _currentTeacherHtml,
+            "student" => _currentStudentHtml,
+            _ => _currentContentHtml
+        };
+        
+        if (!string.IsNullOrEmpty(html))
+        {
+            ContentWebView.Source = new HtmlWebViewSource { Html = html };
+            Log($"Switched to view mode: {_currentViewMode}");
         }
+        else
+        {
+            // Fallback to content if the selected view is empty
+            _currentViewMode = "content";
+            ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
+            Log($"View mode {_currentViewMode} was empty, falling back to content");
+        }
+        
+        UpdateViewModeButton();
+        
+        // Update teacher/student button states
+        TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher" 
+            ? Color.FromArgb("#e74c3c") 
+            : Color.FromArgb("#3498db");
+        StudentAnswersButton.BackgroundColor = _currentViewMode == "student" 
+            ? Color.FromArgb("#e74c3c") 
+            : Color.FromArgb("#2ecc71");
     }
 
     private void OnTeacherNotesClicked(object sender, EventArgs e)
     {
         Log("=== TEACHER NOTES CLICKED ===");
-        _showTeacherNotes = !_showTeacherNotes;
-        UpdateTeacherButton();
-        
-        if (_showTeacherNotes && string.IsNullOrEmpty(_currentTeacherHtml))
+        if (!string.IsNullOrEmpty(_currentTeacherHtml))
         {
-            LoadTeacherNotes();
+            _currentViewMode = _currentViewMode == "teacher" ? "content" : "teacher";
+            UpdateViewMode();
         }
-        
-        UpdateOverlayVisibility();
+        else
+        {
+            StatusLabel.Text = "No teacher notes available for this page";
+        }
     }
 
     private void OnStudentAnswersClicked(object sender, EventArgs e)
     {
         Log("=== STUDENT ANSWERS CLICKED ===");
-        _showStudentAnswers = !_showStudentAnswers;
-        UpdateStudentButton();
-        
-        if (_showStudentAnswers && string.IsNullOrEmpty(_currentStudentHtml))
+        if (!string.IsNullOrEmpty(_currentStudentHtml))
         {
-            LoadStudentAnswers();
+            _currentViewMode = _currentViewMode == "student" ? "content" : "student";
+            UpdateViewMode();
         }
-        
-        UpdateOverlayVisibility();
+        else
+        {
+            StatusLabel.Text = "No student answers available for this page";
+        }
     }
 
     private async void OnOpenBookClicked(object sender, EventArgs e)
@@ -430,11 +604,10 @@ public partial class MainPage : ContentPage
                         StudentAnswersButton.IsEnabled = true;
                         DecryptButton.IsEnabled = true;
                         SideBySideButton.IsEnabled = true;
+                        ViewModeButton.IsEnabled = true;
                         
-                        _showTeacherNotes = false;
-                        _showStudentAnswers = false;
-                        UpdateTeacherButton();
-                        UpdateStudentButton();
+                        _currentViewMode = "content";
+                        UpdateViewModeButton();
                         
                         Log("Book loaded successfully");
                         await DisplayAlert("Success", $"Book loaded!\nLog file: {GetLogFilePath()}", "OK");
@@ -454,6 +627,7 @@ public partial class MainPage : ContentPage
         }
     }
 
+    
     private async void OnDownloadClicked(object sender, EventArgs e)
     {
         try
