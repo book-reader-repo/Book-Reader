@@ -1334,11 +1334,21 @@ namespace BookViewer
         // ============================================================
         // Build Overlay HTML - For the main WebView
         // ============================================================
-        private string BuildOverlayHtml(string bgImage, string redContent, string fileName, string fontCss)
+        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss, string teacherAnswerHtml, string studentAnswerHtml)
         {
-            double zoom = _bookService.CurrentZoom;
-        
-            return $@"
+            if (string.IsNullOrEmpty(bgImage))
+            {
+                bgImage = GetPlaceholderImage();
+            }
+
+            if (string.IsNullOrEmpty(contentHtml))
+            {
+                contentHtml = "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
+            }
+
+            double zoom = _currentZoom;
+
+            string result = $@"
             <!DOCTYPE html>
             <html>
             <head>
@@ -1356,7 +1366,7 @@ namespace BookViewer
                         width: 100%;
                         height: 100%;
                         overflow: auto;
-                        background: transparent !important;
+                        background: #1a1a2e;
                         -webkit-font-smoothing: antialiased;
                         -moz-osx-font-smoothing: grayscale;
                     }}
@@ -1368,7 +1378,6 @@ namespace BookViewer
                         padding: 10px;
                         margin: 0;
                         overflow: auto;
-                        background: transparent !important;
                     }}
                     .page-wrapper {{
                         display: flex;
@@ -1384,11 +1393,24 @@ namespace BookViewer
                         width: 1024px;
                         height: 1344px;
                         flex-shrink: 0;
-                        background: transparent !important;
+                        background: #2d2d44;
+                        box-shadow: 0 0 30px rgba(0,0,0,0.5);
                         overflow: hidden;
                         border-radius: 4px;
                         transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
                         transform-origin: center center;
+                    }}
+                    .background-img {{
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        object-fit: contain;
+                        pointer-events: none;
+                        z-index: 1;
+                        image-rendering: auto;
+                        image-rendering: -webkit-optimize-contrast;
                     }}
                     .content-overlay {{
                         position: absolute;
@@ -1402,22 +1424,55 @@ namespace BookViewer
                     }}
                     .content-overlay > * {{
                         position: absolute !important;
+                        top: 0;
+                        left: 0;
+                    }}
+                    .content-overlay [style*='position:absolute'],
+                    .content-overlay [style*='position:fixed'] {{
+                        position: absolute !important;
+                    }}
+                    .content-overlay [style*='position:relative'] {{
+                        position: absolute !important;
                     }}
                     
-                    /* Highlight for teacher notes */
-                    .tbnote {{
-                        background: rgba(255, 255, 0, 0.25);
+                    /* Teacher Notes styles - hidden by default, shown via inline style */
+                    [redanswertype='teacherNotes'] {{
+                        z-index: 10;
+                        background: rgba(255, 255, 0, 0.15);
                         border: 2px solid #3498db;
                         border-radius: 4px;
-                        padding: 2px;
+                        padding: 4px;
+                        pointer-events: none;
                     }}
                     
-                    /* Highlight for student answers */
-                    .sa {{
-                        background: rgba(0, 255, 0, 0.25);
+                    /* Student Answers styles - hidden by default, shown via inline style */
+                    [redanswertype='studentAnswers'] {{
+                        z-index: 10;
+                        background: rgba(0, 255, 0, 0.15);
                         border: 2px solid #2ecc71;
                         border-radius: 4px;
-                        padding: 2px;
+                        padding: 4px;
+                        pointer-events: none;
+                    }}
+                    
+                    .tbnote.has2 {{
+                        cursor: pointer;
+                    }}
+                    
+                    .zoom-hint {{
+                        position: fixed;
+                        bottom: 20px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        color: #8899bb;
+                        font-size: 12px;
+                        background: rgba(0,0,0,0.7);
+                        padding: 4px 12px;
+                        border-radius: 12px;
+                        pointer-events: none;
+                        z-index: 100;
+                        opacity: 0.6;
+                        font-family: Arial, sans-serif;
                     }}
                     
                     ::-webkit-scrollbar {{
@@ -1439,14 +1494,21 @@ namespace BookViewer
             <body>
                 <div class='page-wrapper'>
                     <div class='page-container'>
+                        <img class='background-img' src='{bgImage}' alt='Background' />
                         <div class='content-overlay'>
-                            {redContent}
+                            {contentHtml}
+                            {teacherAnswerHtml}
+                            {studentAnswerHtml}
                         </div>
                     </div>
                 </div>
+                <div class='zoom-hint'>🔍 Pinch to zoom | Zoom: {zoom:F1}x</div>
             </body>
             </html>";
+
+            return result;
         }
+
         public void NavigatePrevious()
         {
             if (_currentPageIndex > 0)
