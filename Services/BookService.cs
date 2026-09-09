@@ -168,6 +168,15 @@ namespace BookViewer
             try
             {
                 Log($"=== LOADING BOOK from: {folderPath} ===");
+                
+                // Log all files in the directory
+                var allFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.AllDirectories);
+                Log($"Total files in book directory: {allFiles.Length}");
+                foreach (var file in allFiles.Take(20))
+                {
+                    Log($"  File: {file}");
+                }
+                
                 _currentBookPath = folderPath;
                 
                 _tempFolder = Path.Combine(FileSystem.CacheDirectory, "BookViewer", $"temp_{Guid.NewGuid().ToString().Substring(0, 8)}");
