@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFrameworks>net9.0-ios</TargetFrameworks>
+        <TargetFrameworks>net9.0-ios;net9.0-android</TargetFrameworks>
         <OutputType>Exe</OutputType>
         <UseMaui>true</UseMaui>
         <SingleProject>true</SingleProject>
@@ -10,11 +10,24 @@
         <ApplicationVersion>1</ApplicationVersion>
         <ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
 
-        <!-- Allow CLI / GitHub Actions to specify RuntimeIdentifier dynamically -->
-        <RuntimeIdentifiers>ios-arm64;iossimulator-arm64</RuntimeIdentifiers>
+        <!-- iOS -->
+        <RuntimeIdentifiers Condition="'$(TargetFramework)' == 'net9.0-ios'">ios-arm64;iossimulator-arm64</RuntimeIdentifiers>
+        <SupportedOSPlatformVersion Condition="'$(TargetFramework)' == 'net9.0-ios'">14.0</SupportedOSPlatformVersion>
+        <CodesignEntitlements Condition="'$(TargetFramework)' == 'net9.0-ios'">oxsolution.entitlements</CodesignEntitlements>
 
-        <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
-        <CodesignEntitlements>oxsolution.entitlements</CodesignEntitlements>
+        <!-- Android - add more RIDs for broader compatibility -->
+        <RuntimeIdentifiers Condition="'$(TargetFramework)' == 'net9.0-android'">android-arm64;android-x64;android-arm</RuntimeIdentifiers>
+        <SupportedOSPlatformVersion Condition="'$(TargetFramework)' == 'net9.0-android'">21.0</SupportedOSPlatformVersion>
+        
+        <!-- Android specific -->
+        <AndroidPackageFormat>apk</AndroidPackageFormat>
+        <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+        <AndroidUseAapt2>true</AndroidUseAapt2>
+        <AndroidCreatePackagePerAbi>false</AndroidCreatePackagePerAbi>
+        <AndroidEnableAssemblyCompression>false</AndroidEnableAssemblyCompression>
+        
+        <!-- Enable AOT for better performance on Android -->
+        <AndroidEnableAot>false</AndroidEnableAot>
     </PropertyGroup>
 
     <ItemGroup>
