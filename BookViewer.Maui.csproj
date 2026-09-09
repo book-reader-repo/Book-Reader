@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <!-- Only set TargetFramework explicitly, not TargetFrameworks -->
-        <TargetFramework Condition="'$(TargetFramework)' == '' AND '$(OS)' == 'Windows_NT'">net9.0-ios</TargetFramework>
-        <TargetFramework Condition="'$(TargetFramework)' == '' AND '$(OS)' == 'Unix'">net9.0-android</TargetFramework>
+        <!-- Only set TargetFramework if not already set -->
+        <TargetFramework Condition="'$(TargetFramework)' == ''">net9.0-android</TargetFramework>
         <OutputType>Exe</OutputType>
         <UseMaui>true</UseMaui>
         <SingleProject>true</SingleProject>
