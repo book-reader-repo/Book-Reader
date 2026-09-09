@@ -128,25 +128,21 @@ public partial class MainPage : ContentPage
             {
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
                 var directory = Path.GetDirectoryName(filePath) ?? "";
+                var fileName = Path.GetFileName(filePath) ?? "";
                 
-                // Get the red answer content
+                // Get the base content (text from _ori.html)
+                string baseContent = await GetBaseContentAsync(filePath);
+                
+                // Get the red answer content (teacher notes)
                 string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "teacherNotes");
                 
-                if (!string.IsNullOrEmpty(redContent))
-                {
-                    // Get background image and font CSS
-                    string bgImage = _bookService.GetStepBackgroundImage(filePath);
-                    string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
-                    
-                    // Build the HTML for teacher view
-                    _currentTeacherHtml = BuildTeacherViewHtml(bgImage, redContent, Path.GetFileName(filePath), fontCss);
-                    Log($"Teacher view loaded, length: {_currentTeacherHtml.Length}");
-                }
-                else
-                {
-                    Log("No teacher notes found");
-                    _currentTeacherHtml = "";
-                }
+                // Get background image and font CSS
+                string bgImage = _bookService.GetStepBackgroundImage(filePath);
+                string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
+                
+                // Build the HTML for teacher view with both base content and highlighted answers
+                _currentTeacherHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "teacherNotes");
+                Log($"Teacher view loaded, length: {_currentTeacherHtml.Length}");
             }
         }
         catch (Exception ex)
@@ -163,25 +159,21 @@ public partial class MainPage : ContentPage
             {
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
                 var directory = Path.GetDirectoryName(filePath) ?? "";
+                var fileName = Path.GetFileName(filePath) ?? "";
                 
-                // Get the red answer content
+                // Get the base content (text from _ori.html)
+                string baseContent = await GetBaseContentAsync(filePath);
+                
+                // Get the red answer content (student answers)
                 string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "studentAnswers");
                 
-                if (!string.IsNullOrEmpty(redContent))
-                {
-                    // Get background image and font CSS
-                    string bgImage = _bookService.GetStepBackgroundImage(filePath);
-                    string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
-                    
-                    // Build the HTML for student view
-                    _currentStudentHtml = BuildStudentViewHtml(bgImage, redContent, Path.GetFileName(filePath), fontCss);
-                    Log($"Student view loaded, length: {_currentStudentHtml.Length}");
-                }
-                else
-                {
-                    Log("No student answers found");
-                    _currentStudentHtml = "";
-                }
+                // Get background image and font CSS
+                string bgImage = _bookService.GetStepBackgroundImage(filePath);
+                string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
+                
+                // Build the HTML for student view with both base content and highlighted answers
+                _currentStudentHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "studentAnswers");
+                Log($"Student view loaded, length: {_currentStudentHtml.Length}");
             }
         }
         catch (Exception ex)
@@ -190,148 +182,61 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private string BuildTeacherViewHtml(string bgImage, string redContent, string fileName, string fontCss)
+    private async Task<string> GetBaseContentAsync(string filePath)
     {
-        double zoom = _bookService.CurrentZoom;
-        
-        if (string.IsNullOrEmpty(bgImage))
+        try
         {
-            bgImage = GetPlaceholderImage();
+            var directory = Path.GetDirectoryName(filePath) ?? "";
+            var fileName = Path.GetFileName(filePath) ?? "";
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+            
+            string oriHtmlPath = Path.Combine(directory, nameWithoutExt + "_ori.html");
+            if (File.Exists(oriHtmlPath))
+            {
+                string oriContent = await File.ReadAllTextAsync(oriHtmlPath);
+                var bodyMatch = Regex.Match(oriContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
+                if (bodyMatch.Success)
+                {
+                    return bodyMatch.Groups[1].Value;
+                }
+                return oriContent;
+            }
+            
+            string paraXmlPath = Path.Combine(directory, nameWithoutExt + "_para.xml");
+            if (File.Exists(paraXmlPath))
+            {
+                string paraContent = await File.ReadAllTextAsync(paraXmlPath);
+                // Parse para.xml and convert to HTML
+                var doc = new System.Xml.XmlDocument();
+                doc.LoadXml(paraContent);
+                var parasNode = doc.SelectSingleNode("//paras");
+                if (parasNode != null)
+                {
+                    var result = "";
+                    foreach (System.Xml.XmlNode child in parasNode.ChildNodes)
+                    {
+                        if (child.Name == "para")
+                        {
+                            var text = child.InnerText;
+                            var style = child.Attributes?["style"]?.Value ?? "";
+                            result += $"<div class='para' style='{style}'>{text}</div>";
+                        }
+                    }
+                    return result;
+                }
+                return "";
+            }
+            
+            return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
         }
-
-        return $@"
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset='UTF-8'>
-            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
-            <title>{fileName} - Teacher Notes</title>
-            <style>
-                {fontCss}
-                * {{
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }}
-                html, body {{
-                    width: 100%;
-                    height: 100%;
-                    overflow: auto;
-                    background: #1a1a2e;
-                    -webkit-font-smoothing: antialiased;
-                    -moz-osx-font-smoothing: grayscale;
-                }}
-                body {{
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    min-height: 100vh;
-                    padding: 10px;
-                    margin: 0;
-                    overflow: auto;
-                }}
-                .page-wrapper {{
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    width: 100%;
-                    height: 100%;
-                    min-height: 100vh;
-                    overflow: auto;
-                }}
-                .page-container {{
-                    position: relative;
-                    width: 1024px;
-                    height: 1344px;
-                    flex-shrink: 0;
-                    background: #2d2d44;
-                    box-shadow: 0 0 30px rgba(0,0,0,0.5);
-                    overflow: hidden;
-                    border-radius: 4px;
-                    transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
-                    transform-origin: center center;
-                }}
-                .background-img {{
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    object-fit: contain;
-                    pointer-events: none;
-                    z-index: 1;
-                    image-rendering: auto;
-                    image-rendering: -webkit-optimize-contrast;
-                    opacity: 0.5;
-                }}
-                .content-overlay {{
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    z-index: 2;
-                    overflow: hidden;
-                    pointer-events: auto;
-                }}
-                .content-overlay > * {{
-                    position: absolute !important;
-                }}
-                
-                /* Teacher notes highlight */
-                .tbnote {{
-                    background: rgba(255, 255, 0, 0.3);
-                    border: 3px solid #3498db;
-                    border-radius: 4px;
-                    padding: 3px;
-                }}
-                
-                /* Teacher notes label */
-                .teacher-label {{
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: rgba(52, 152, 219, 0.9);
-                    color: white;
-                    padding: 8px 16px;
-                    border-radius: 20px;
-                    font-size: 14px;
-                    font-family: Arial, sans-serif;
-                    z-index: 100;
-                    pointer-events: none;
-                }}
-                
-                ::-webkit-scrollbar {{
-                    width: 6px;
-                    height: 6px;
-                }}
-                ::-webkit-scrollbar-track {{
-                    background: #1a1a2e;
-                }}
-                ::-webkit-scrollbar-thumb {{
-                    background: #2d2d44;
-                    border-radius: 3px;
-                }}
-                ::-webkit-scrollbar-thumb:hover {{
-                    background: #3d3d54;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class='teacher-label'>👨‍🏫 Teacher Notes</div>
-            <div class='page-wrapper'>
-                <div class='page-container'>
-                    <img class='background-img' src='{bgImage}' alt='Background' />
-                    <div class='content-overlay'>
-                        {redContent}
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>";
+        catch (Exception ex)
+        {
+            Log($"Error getting base content: {ex.Message}");
+            return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
+        }
     }
 
-    private string BuildStudentViewHtml(string bgImage, string redContent, string fileName, string fontCss)
+    private string BuildFullViewHtml(string bgImage, string baseContent, string redContent, string fileName, string fontCss, string viewType)
     {
         double zoom = _bookService.CurrentZoom;
         
@@ -340,13 +245,18 @@ public partial class MainPage : ContentPage
             bgImage = GetPlaceholderImage();
         }
 
+        string labelText = viewType == "teacherNotes" ? "👨‍🏫 Teacher Notes" : "👨‍🎓 Student Answers";
+        string labelColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
+        string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
+        string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
+
         return $@"
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset='UTF-8'>
             <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
-            <title>{fileName} - Student Answers</title>
+            <title>{fileName}</title>
             <style>
                 {fontCss}
                 * {{
@@ -403,7 +313,6 @@ public partial class MainPage : ContentPage
                     z-index: 1;
                     image-rendering: auto;
                     image-rendering: -webkit-optimize-contrast;
-                    opacity: 0.5;
                 }}
                 .content-overlay {{
                     position: absolute;
@@ -419,20 +328,49 @@ public partial class MainPage : ContentPage
                     position: absolute !important;
                 }}
                 
-                /* Student answers highlight */
-                .sa {{
-                    background: rgba(0, 255, 0, 0.3);
-                    border: 3px solid #2ecc71;
+                /* Base content */
+                .base-content {{
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 5;
+                    pointer-events: none;
+                }}
+                .base-content > * {{
+                    position: absolute !important;
+                }}
+                
+                /* Highlight overlay */
+                .highlight-overlay {{
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 10;
+                    pointer-events: none;
+                    overflow: visible;
+                }}
+                .highlight-overlay > * {{
+                    position: absolute !important;
+                }}
+                
+                /* Highlight style */
+                .{highlightClass} {{
+                    background: rgba(255, 255, 0, 0.25);
+                    border: 3px solid {borderColor};
                     border-radius: 4px;
                     padding: 3px;
                 }}
                 
-                /* Student answers label */
-                .student-label {{
+                /* Label */
+                .view-label {{
                     position: fixed;
                     top: 20px;
                     right: 20px;
-                    background: rgba(46, 204, 113, 0.9);
+                    background: rgba({viewType == "teacherNotes" ? "52, 152, 219" : "46, 204, 113"}, 0.9);
                     color: white;
                     padding: 8px 16px;
                     border-radius: 20px;
@@ -459,12 +397,17 @@ public partial class MainPage : ContentPage
             </style>
         </head>
         <body>
-            <div class='student-label'>👨‍🎓 Student Answers</div>
+            <div class='view-label'>{labelText}</div>
             <div class='page-wrapper'>
                 <div class='page-container'>
                     <img class='background-img' src='{bgImage}' alt='Background' />
                     <div class='content-overlay'>
-                        {redContent}
+                        <div class='base-content'>
+                            {baseContent}
+                        </div>
+                        <div class='highlight-overlay'>
+                            {redContent}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -488,7 +431,6 @@ public partial class MainPage : ContentPage
         };
         ViewModeButton.Text = text;
         
-        // Update button color based on mode
         ViewModeButton.BackgroundColor = _currentViewMode switch
         {
             "content" => Color.FromArgb("#2c3e50"),
@@ -502,7 +444,6 @@ public partial class MainPage : ContentPage
     {
         Log("=== VIEW MODE CLICKED ===");
         
-        // Cycle through modes: content -> teacher -> student -> content
         _currentViewMode = _currentViewMode switch
         {
             "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
@@ -532,7 +473,6 @@ public partial class MainPage : ContentPage
         }
         else
         {
-            // Fallback to content if the selected view is empty
             _currentViewMode = "content";
             ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
             Log($"View mode {_currentViewMode} was empty, falling back to content");
@@ -540,7 +480,6 @@ public partial class MainPage : ContentPage
         
         UpdateViewModeButton();
         
-        // Update teacher/student button states
         TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher" 
             ? Color.FromArgb("#e74c3c") 
             : Color.FromArgb("#3498db");
@@ -627,7 +566,6 @@ public partial class MainPage : ContentPage
         }
     }
 
-    
     private async void OnDownloadClicked(object sender, EventArgs e)
     {
         try
