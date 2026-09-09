@@ -168,7 +168,9 @@ namespace BookViewer.Services
                     if (entry.FullName.EndsWith("/"))
                         continue;
 
-                    var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                    // Normalize path: replace backslashes with forward slashes
+                    var entryName = entry.FullName.Replace('\\', '/');
+                    var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                     var directory = Path.GetDirectoryName(fullPath);
                     if (!string.IsNullOrEmpty(directory))
                         Directory.CreateDirectory(directory);
@@ -226,7 +228,9 @@ namespace BookViewer.Services
                                 if (entry.FullName.EndsWith("/"))
                                     continue;
 
-                                var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                                // Normalize path: replace backslashes with forward slashes
+                                var entryName = entry.FullName.Replace('\\', '/');
+                                var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
@@ -340,7 +344,9 @@ namespace BookViewer.Services
                                 if (entry.FullName.EndsWith("/"))
                                     continue;
 
-                                var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                                // Normalize path: replace backslashes with forward slashes
+                                var entryName = entry.FullName.Replace('\\', '/');
+                                var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
@@ -396,7 +402,9 @@ namespace BookViewer.Services
                                 if (entry.FullName.EndsWith("/"))
                                     continue;
 
-                                var fullPath = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                                // Normalize path: replace backslashes with forward slashes
+                                var entryName = entry.FullName.Replace('\\', '/');
+                                var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
                                 if (!string.IsNullOrEmpty(directory))
                                     Directory.CreateDirectory(directory);
