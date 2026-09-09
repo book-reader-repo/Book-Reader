@@ -251,6 +251,12 @@ public partial class MainPage : ContentPage
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
+                
+                StatusLabel.Text = $"Loaded: {bookInfo.Title}";
+            }
+            else
+            {
+                StatusLabel.Text = $"Failed to load {bookInfo.Title}";
             }
         }
         catch (Exception ex)
@@ -824,6 +830,8 @@ public partial class MainPage : ContentPage
         
         UpdateDisplay();
         UpdateViewModeButton();
+        UpdateTeacherButton();
+        UpdateStudentButton();
     }
 
     private void OnTeacherNotesClicked(object sender, EventArgs e)
@@ -1025,10 +1033,15 @@ public partial class MainPage : ContentPage
                     StatusLabel.Text = $"Book {bookNumber} downloaded successfully!";
                     await DisplayAlert("Success", $"Book {bookNumber} has been downloaded to:\n{bookPath}", "OK");
                     
-                    var bookXmlPath = Path.Combine(bookPath, "book.xml");
-                    if (File.Exists(bookXmlPath))
+                    // Refresh the book list
+                    LoadDownloadedBooks();
+                    
+                    // Find and select the downloaded book
+                    var bookInfo = _downloadedBooks.FirstOrDefault(b => b.BookId == $"book_{bookNumber}");
+                    if (bookInfo != null)
                     {
-                        await _bookService.LoadBookAsync(bookPath);
+                        var index = _downloadedBooks.IndexOf(bookInfo);
+                        BookPicker.SelectedIndex = index;
                     }
                     
                     DownloadButton.IsEnabled = true;
