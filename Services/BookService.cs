@@ -1106,6 +1106,9 @@ namespace BookViewer
         // ============================================================
         // Decrypt all files in the book directory - Only if needed
         // ============================================================
+        // ============================================================
+        // Decrypt all files in the book directory - Only if needed
+        // ============================================================
         private async Task DecryptBookFilesAsync(string folderPath)
         {
             try
@@ -1125,6 +1128,11 @@ namespace BookViewer
                 int decryptedCount = 0;
                 int skippedCount = 0;
                 int alreadyDecryptedCount = 0;
+        
+                // Create list of all XML and HTM files
+                var allXmlAndHtmFiles = new List<string>();
+                allXmlAndHtmFiles.AddRange(xmlFiles);
+                allXmlAndHtmFiles.AddRange(htmFiles);
         
                 // Check if HTML files are already decrypted by sampling one file
                 bool needsDecryption = false;
@@ -1200,10 +1208,6 @@ namespace BookViewer
         
                 // Decrypt XML and HTM files
                 Log("📄 Processing XML and HTM files...");
-                var allXmlAndHtmFiles = new List<string>();
-                allXmlAndHtmFiles.AddRange(xmlFiles);
-                allXmlAndHtmFiles.AddRange(htmFiles);
-        
                 foreach (var file in allXmlAndHtmFiles)
                 {
                     try
