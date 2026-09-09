@@ -1019,37 +1019,6 @@ namespace BookViewer
             return -1;
         }
 
-        public async Task LoadPageAsync(int index)
-        {
-            if (index < 0 || index >= _pageFiles.Count) return;
-
-            try
-            {
-                Log($"=== LOADING PAGE {index} ===");
-                _currentPageIndex = index;
-                var filePath = _pageFiles[index];
-                var fileName = Path.GetFileName(filePath);
-                Log($"File: {fileName}");
-
-                var content = await File.ReadAllTextAsync(filePath);
-                Log($"Raw content size: {content.Length} bytes");
-
-                var processedHtml = await ProcessHtmlContent(content, filePath);
-                _currentPageHtml = processedHtml;
-                Log($"Processed HTML size: {processedHtml.Length} bytes");
-
-                OnPageChanged?.Invoke(this, processedHtml);
-                OnStatusChanged?.Invoke(this, $"Viewing: {fileName}");
-                Log($"=== PAGE {index} LOADED SUCCESSFULLY ===");
-            }
-            catch (Exception ex)
-            {
-                Log($"ERROR loading page: {ex.Message}");
-                Log($"Stack trace: {ex.StackTrace}");
-                OnStatusChanged?.Invoke(this, $"Error loading page: {ex.Message}");
-            }
-        }
-
         // ============================================================
         // Process HTML Content
         // ============================================================
@@ -1567,16 +1536,73 @@ namespace BookViewer
             return result;
         }
 
+        // Update the NavigatePrevious and NavigateNext methods in BookService.cs
         public void NavigatePrevious()
         {
+            Log($"NavigatePrevious called. Current index: {_currentPageIndex}, Total pages: {_pageFiles.Count}");
             if (_currentPageIndex > 0)
+            {
                 _ = LoadPageAsync(_currentPageIndex - 1);
+            }
+            else
+            {
+                Log("Already at first page");
+                OnStatusChanged?.Invoke(this, "Already at first page");
+            }
         }
-
+        
         public void NavigateNext()
         {
+            Log($"NavigateNext called. Current index: {_currentPageIndex}, Total pages: {_pageFiles.Count}");
             if (_currentPageIndex < _pageFiles.Count - 1)
+            {
                 _ = LoadPageAsync(_currentPageIndex + 1);
+            }
+            else
+            {
+                Log("Already at last page");
+                OnStatusChanged?.Invoke(this, "Already at last page");
+            }
+        }
+        
+        // Update LoadPageAsync to properly update the index
+        public async Task LoadPageAsync(int index)
+        {
+            if (index < 0 || index >= _pageFiles.Count)
+            {
+                Log($"LoadPageAsync: Invalid index {index}, PageFiles count: {_pageFiles.Count}");
+                return;
+            }
+        
+            try
+            {
+                Log($"=== LOADING PAGE {index} ===");
+                _currentPageIndex = index;
+                var filePath = _pageFiles[index];
+                var fileName = Path.GetFileName(filePath);
+                Log($"File: {fileName}");
+        
+                var content = await File.ReadAllTextAsync(filePath);
+                Log($"Raw content size: {content.Length} bytes");
+        
+                var processedHtml = await ProcessHtmlContent(content, filePath);
+                _currentPageHtml = processedHtml;
+                Log($"Processed HTML size: {processedHtml.Length} bytes");
+        
+                OnPageChanged?.Invoke(this, processedHtml);
+                OnStatusChanged?.Invoke(this, $"Viewing: {fileName} ({index + 1}/{_pageFiles.Count})");
+                
+                // Also update the UI through the event
+                OnPagesLoaded?.Invoke(this, _pageFiles);
+                
+                Log($"=== PAGE {index} LOADED SUCCESSFULLY ===");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR loading page: {ex.Message}");
+                Log($"Stack trace: {ex.StackTrace}");
+                OnStatusChanged?.Invoke(this, $"Error loading page: {ex.Message}");
+            }
         }
 
         public void ToggleAnswers(bool show)
