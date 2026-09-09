@@ -15,6 +15,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Create global.json for .NET 9
+        run: |
+          echo '{ "sdk": { "version": "9.0.100", "rollForward": "latestFeature" } }' > global.json
+
       - name: Setup .NET 9 SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -31,31 +35,20 @@ jobs:
           sudo xcode-select -s /Applications/Xcode.app || true
           xcodebuild -version
 
-      # 核心修正 1：動態建立覆蓋設定，強迫 .NET SDK 在此環境下「只看 iOS」
-      # 這樣可以防止還原機制去檢查或報錯關於專案內聲明的 Android 目標
-      - name: Configure Target Framework for iOS Only
-        run: |
-          echo "<?xml version=\"1.0\" encoding=\"utf-8\"?>" > Directory.Build.props
-          echo "<Project>" >> Directory.Build.props
-          echo "  <PropertyGroup>" >> Directory.Build.props
-          echo "    <TargetFrameworks>net9.0-ios</TargetFrameworks>" >> Directory.Build.props
-          echo "  </PropertyGroup>" >> Directory.Build.props
-          echo "</Project>" >> Directory.Build.props
-
-      # 核心修正 2：在限縮平台後執行標準 restore，此時 SDK 只會專心補齊所需的 ios 負載
       - name: Install MAUI Workloads
         run: |
-          dotnet workload install ios maui-ios maui android
-          dotnet workload restore ./BookViewer.Maui.csproj
+          dotnet workload install ios maui android
           dotnet workload list
 
-      # 核心修正 3：執行發佈，並加上 --no-restore 使用剛剛已限縮且準備好的乾淨環境
+      - name: Restore Dependencies
+        run: |
+          dotnet restore ./BookViewer.Maui.csproj -f net9.0-ios
+
       - name: Build iOS IPA
         run: |
           dotnet publish ./BookViewer.Maui.csproj \
             -f net9.0-ios \
             -c Release \
-            --no-restore \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:EnableCodeSigning=false \
             -p:BuildIpa=true \
