@@ -76,6 +76,11 @@ public partial class MainPage : ContentPage
         Log("=== MAIN PAGE INITIALIZED ===");
         Log($"Log file: {GetLogFilePath()}");
 
+        // Make WebViews transparent
+        ContentWebView.BackgroundColor = Colors.Transparent;
+        TeacherWebView.BackgroundColor = Colors.Transparent;
+        StudentWebView.BackgroundColor = Colors.Transparent;
+
         _bookService.OnPagesLoaded += (s, pages) =>
             Device.BeginInvokeOnMainThread(UpdateUI);
 
@@ -86,15 +91,15 @@ public partial class MainPage : ContentPage
                 Log($"=== PAGE CHANGED ===");
                 Log($"Content length: {content?.Length ?? 0}");
                 
-                // Store and display content
+                // Store content
                 _currentContentHtml = content;
-                _currentViewMode = "content";
-                UpdateViewModeButton();
-                ContentWebView.Source = new HtmlWebViewSource { Html = content };
                 
-                // Preload teacher and student views
+                // Load teacher and student views
                 LoadTeacherView();
                 LoadStudentView();
+                
+                // Update display based on current mode
+                UpdateDisplay();
             });
         };
 
@@ -105,14 +110,24 @@ public partial class MainPage : ContentPage
             Device.BeginInvokeOnMainThread(() => BookTitleLabel.Text = title);
 
         _bookService.OnSideBySideToggled += (s, enabled) =>
+        {
             Device.BeginInvokeOnMainThread(() =>
             {
                 SideBySideButton.Text = enabled ? "📄 1/1" : "📄 1/2";
                 SideBySideButton.BackgroundColor = enabled 
                     ? Color.FromArgb("#3498db") 
                     : Color.FromArgb("#2c3e50");
+                
+                // Update column widths for side-by-side
+                LeftColumn.Width = enabled ? new GridLength(1, GridUnitType.Star) : new GridLength(1, GridUnitType.Star);
+                RightColumn.Width = enabled ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+                
+                // Update display
+                UpdateDisplay();
+                
                 StatusLabel.Text = enabled ? "Side-by-side mode" : "Single page mode";
             });
+        };
 
         _bookService.OnZoomChanged += (s, zoom) =>
             Device.BeginInvokeOnMainThread(() =>
@@ -141,7 +156,7 @@ public partial class MainPage : ContentPage
                 string bgImage = _bookService.GetStepBackgroundImage(filePath);
                 string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
                 
-                // Build the HTML for teacher view with both base content and highlighted answers
+                // Build the HTML for teacher view
                 _currentTeacherHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "teacherNotes");
                 Log($"Teacher view loaded, length: {_currentTeacherHtml.Length}");
             }
@@ -172,7 +187,7 @@ public partial class MainPage : ContentPage
                 string bgImage = _bookService.GetStepBackgroundImage(filePath);
                 string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
                 
-                // Build the HTML for student view with both base content and highlighted answers
+                // Build the HTML for student view
                 _currentStudentHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "studentAnswers");
                 Log($"Student view loaded, length: {_currentStudentHtml.Length}");
             }
@@ -207,7 +222,6 @@ public partial class MainPage : ContentPage
             if (File.Exists(paraXmlPath))
             {
                 string paraContent = await File.ReadAllTextAsync(paraXmlPath);
-                // Parse para.xml and convert to HTML
                 var doc = new System.Xml.XmlDocument();
                 doc.LoadXml(paraContent);
                 var parasNode = doc.SelectSingleNode("//paras");
@@ -250,6 +264,12 @@ public partial class MainPage : ContentPage
         string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
         string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
         string labelColor = viewType == "teacherNotes" ? "52, 152, 219" : "46, 204, 113";
+
+        // If no red content, show just the base content
+        if (string.IsNullOrEmpty(redContent))
+        {
+            return BuildBaseContentHtml(bgImage, baseContent, fileName, fontCss);
+        }
 
         return $@"
         <!DOCTYPE html>
@@ -412,9 +432,199 @@ public partial class MainPage : ContentPage
         </html>";
     }
 
+    private string BuildBaseContentHtml(string bgImage, string baseContent, string fileName, string fontCss)
+    {
+        double zoom = _bookService.CurrentZoom;
+        
+        if (string.IsNullOrEmpty(bgImage))
+        {
+            bgImage = GetPlaceholderImage();
+        }
+
+        return $@"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
+            <title>{fileName}</title>
+            <style>
+                {fontCss}
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                html, body {{
+                    width: 100%;
+                    height: 100%;
+                    overflow: auto;
+                    background: #1a1a2e;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                }}
+                body {{
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    padding: 10px;
+                    margin: 0;
+                    overflow: auto;
+                }}
+                .page-wrapper {{
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    width: 100%;
+                    height: 100%;
+                    min-height: 100vh;
+                    overflow: auto;
+                }}
+                .page-container {{
+                    position: relative;
+                    width: 1024px;
+                    height: 1344px;
+                    flex-shrink: 0;
+                    background: #2d2d44;
+                    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+                    overflow: hidden;
+                    border-radius: 4px;
+                    transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
+                    transform-origin: center center;
+                }}
+                .background-img {{
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    object-fit: contain;
+                    pointer-events: none;
+                    z-index: 1;
+                    image-rendering: auto;
+                    image-rendering: -webkit-optimize-contrast;
+                }}
+                .content-overlay {{
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 2;
+                    overflow: hidden;
+                    pointer-events: auto;
+                }}
+                .content-overlay > * {{
+                    position: absolute !important;
+                }}
+                
+                .base-content {{
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 5;
+                    pointer-events: none;
+                }}
+                .base-content > * {{
+                    position: absolute !important;
+                }}
+                
+                ::-webkit-scrollbar {{
+                    width: 6px;
+                    height: 6px;
+                }}
+                ::-webkit-scrollbar-track {{
+                    background: #1a1a2e;
+                }}
+                ::-webkit-scrollbar-thumb {{
+                    background: #2d2d44;
+                    border-radius: 3px;
+                }}
+                ::-webkit-scrollbar-thumb:hover {{
+                    background: #3d3d54;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class='page-wrapper'>
+                <div class='page-container'>
+                    <img class='background-img' src='{bgImage}' alt='Background' />
+                    <div class='content-overlay'>
+                        <div class='base-content'>
+                            {baseContent}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>";
+    }
+
     private string GetPlaceholderImage()
     {
         return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%232d2d44'/%3E%3C/svg%3E";
+    }
+
+    private void UpdateDisplay()
+    {
+        bool isSideBySide = _bookService.SideBySideMode;
+        
+        if (isSideBySide)
+        {
+            // Side-by-side mode: Left shows content, right shows teacher or student
+            ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
+            
+            if (_showTeacherNotes && !string.IsNullOrEmpty(_currentTeacherHtml))
+            {
+                TeacherWebView.IsVisible = true;
+                StudentWebView.IsVisible = false;
+                TeacherWebView.Source = new HtmlWebViewSource { Html = _currentTeacherHtml };
+                Log("Side-by-side: Showing teacher notes on right");
+            }
+            else if (_showStudentAnswers && !string.IsNullOrEmpty(_currentStudentHtml))
+            {
+                TeacherWebView.IsVisible = false;
+                StudentWebView.IsVisible = true;
+                StudentWebView.Source = new HtmlWebViewSource { Html = _currentStudentHtml };
+                Log("Side-by-side: Showing student answers on right");
+            }
+            else
+            {
+                TeacherWebView.IsVisible = false;
+                StudentWebView.IsVisible = false;
+                Log("Side-by-side: No answers to show");
+            }
+        }
+        else
+        {
+            // Single page mode: Show the selected view
+            TeacherWebView.IsVisible = false;
+            StudentWebView.IsVisible = false;
+            
+            string html = _currentViewMode switch
+            {
+                "content" => _currentContentHtml,
+                "teacher" => _currentTeacherHtml,
+                "student" => _currentStudentHtml,
+                _ => _currentContentHtml
+            };
+            
+            if (!string.IsNullOrEmpty(html))
+            {
+                ContentWebView.Source = new HtmlWebViewSource { Html = html };
+                Log($"Single page: Showing {_currentViewMode} view");
+            }
+            else
+            {
+                ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
+                Log("Single page: Falling back to content view");
+            }
+            
+            UpdateViewModeButton();
+        }
     }
 
     private void UpdateViewModeButton()
@@ -435,47 +645,6 @@ public partial class MainPage : ContentPage
             "student" => Color.FromArgb("#2ecc71"),
             _ => Color.FromArgb("#2c3e50")
         };
-    }
-
-    private void OnViewModeClicked(object sender, EventArgs e)
-    {
-        Log("=== VIEW MODE CLICKED ===");
-        
-        _currentViewMode = _currentViewMode switch
-        {
-            "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
-            "teacher" when (!string.IsNullOrEmpty(_currentStudentHtml)) => "student",
-            "student" => "content",
-            "content" => "content",
-            _ => "content"
-        };
-        
-        UpdateViewMode();
-    }
-
-    private void UpdateViewMode()
-    {
-        string html = _currentViewMode switch
-        {
-            "content" => _currentContentHtml,
-            "teacher" => _currentTeacherHtml,
-            "student" => _currentStudentHtml,
-            _ => _currentContentHtml
-        };
-        
-        if (!string.IsNullOrEmpty(html))
-        {
-            ContentWebView.Source = new HtmlWebViewSource { Html = html };
-            Log($"Switched to view mode: {_currentViewMode}");
-        }
-        else
-        {
-            _currentViewMode = "content";
-            ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
-            Log($"View mode {_currentViewMode} was empty, falling back to content");
-        }
-        
-        UpdateViewModeButton();
         
         TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher" 
             ? Color.FromArgb("#e74c3c") 
@@ -485,31 +654,153 @@ public partial class MainPage : ContentPage
             : Color.FromArgb("#2ecc71");
     }
 
-    private void OnTeacherNotesClicked(object sender, EventArgs e)
+    private void OnViewModeClicked(object sender, EventArgs e)
     {
-        Log("=== TEACHER NOTES CLICKED ===");
-        if (!string.IsNullOrEmpty(_currentTeacherHtml))
+        Log("=== VIEW MODE CLICKED ===");
+        
+        if (_bookService.SideBySideMode)
         {
-            _currentViewMode = _currentViewMode == "teacher" ? "content" : "teacher";
-            UpdateViewMode();
+            // In side-by-side mode, toggle between teacher and student on the right
+            if (_showTeacherNotes && !_showStudentAnswers)
+            {
+                _showTeacherNotes = false;
+                _showStudentAnswers = true;
+            }
+            else if (_showStudentAnswers && !_showTeacherNotes)
+            {
+                _showTeacherNotes = false;
+                _showStudentAnswers = false;
+            }
+            else
+            {
+                _showTeacherNotes = true;
+                _showStudentAnswers = false;
+            }
         }
         else
         {
-            StatusLabel.Text = "No teacher notes available for this page";
+            // In single page mode, cycle through views
+            _currentViewMode = _currentViewMode switch
+            {
+                "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
+                "teacher" when (!string.IsNullOrEmpty(_currentStudentHtml)) => "student",
+                "student" => "content",
+                "content" => "content",
+                _ => "content"
+            };
         }
+        
+        UpdateDisplay();
+        UpdateViewModeButton();
+    }
+
+    private void OnTeacherNotesClicked(object sender, EventArgs e)
+    {
+        Log("=== TEACHER NOTES CLICKED ===");
+        
+        if (_bookService.SideBySideMode)
+        {
+            // In side-by-side mode, toggle teacher notes on the right
+            _showTeacherNotes = !_showTeacherNotes;
+            if (_showTeacherNotes)
+            {
+                _showStudentAnswers = false;
+            }
+        }
+        else
+        {
+            // In single page mode, switch to teacher view
+            if (!string.IsNullOrEmpty(_currentTeacherHtml))
+            {
+                _currentViewMode = _currentViewMode == "teacher" ? "content" : "teacher";
+            }
+            else
+            {
+                StatusLabel.Text = "No teacher notes available for this page";
+                return;
+            }
+        }
+        
+        UpdateDisplay();
+        UpdateViewModeButton();
+        UpdateTeacherButton();
+        UpdateStudentButton();
     }
 
     private void OnStudentAnswersClicked(object sender, EventArgs e)
     {
         Log("=== STUDENT ANSWERS CLICKED ===");
-        if (!string.IsNullOrEmpty(_currentStudentHtml))
+        
+        if (_bookService.SideBySideMode)
         {
-            _currentViewMode = _currentViewMode == "student" ? "content" : "student";
-            UpdateViewMode();
+            // In side-by-side mode, toggle student answers on the right
+            _showStudentAnswers = !_showStudentAnswers;
+            if (_showStudentAnswers)
+            {
+                _showTeacherNotes = false;
+            }
         }
         else
         {
-            StatusLabel.Text = "No student answers available for this page";
+            // In single page mode, switch to student view
+            if (!string.IsNullOrEmpty(_currentStudentHtml))
+            {
+                _currentViewMode = _currentViewMode == "student" ? "content" : "student";
+            }
+            else
+            {
+                StatusLabel.Text = "No student answers available for this page";
+                return;
+            }
+        }
+        
+        UpdateDisplay();
+        UpdateViewModeButton();
+        UpdateTeacherButton();
+        UpdateStudentButton();
+    }
+
+    private void UpdateTeacherButton()
+    {
+        if (TeacherNotesButton != null)
+        {
+            if (_bookService.SideBySideMode)
+            {
+                TeacherNotesButton.Text = _showTeacherNotes ? "👨‍🏫 Hide Notes" : "👨‍🏫 Teacher Notes";
+                TeacherNotesButton.BackgroundColor = _showTeacherNotes 
+                    ? Color.FromArgb("#e74c3c") 
+                    : Color.FromArgb("#3498db");
+            }
+            else
+            {
+                TeacherNotesButton.Text = _currentViewMode == "teacher" ? "👨‍🏫 Hide Notes" : "👨‍🏫 Teacher Notes";
+                TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher" 
+                    ? Color.FromArgb("#e74c3c") 
+                    : Color.FromArgb("#3498db");
+            }
+            Log($"Teacher button updated: {TeacherNotesButton.Text}");
+        }
+    }
+
+    private void UpdateStudentButton()
+    {
+        if (StudentAnswersButton != null)
+        {
+            if (_bookService.SideBySideMode)
+            {
+                StudentAnswersButton.Text = _showStudentAnswers ? "👨‍🎓 Hide Answers" : "👨‍🎓 Student Answers";
+                StudentAnswersButton.BackgroundColor = _showStudentAnswers 
+                    ? Color.FromArgb("#e74c3c") 
+                    : Color.FromArgb("#2ecc71");
+            }
+            else
+            {
+                StudentAnswersButton.Text = _currentViewMode == "student" ? "👨‍🎓 Hide Answers" : "👨‍🎓 Student Answers";
+                StudentAnswersButton.BackgroundColor = _currentViewMode == "student" 
+                    ? Color.FromArgb("#e74c3c") 
+                    : Color.FromArgb("#2ecc71");
+            }
+            Log($"Student button updated: {StudentAnswersButton.Text}");
         }
     }
 
@@ -543,7 +834,11 @@ public partial class MainPage : ContentPage
                         ViewModeButton.IsEnabled = true;
                         
                         _currentViewMode = "content";
+                        _showTeacherNotes = false;
+                        _showStudentAnswers = false;
                         UpdateViewModeButton();
+                        UpdateTeacherButton();
+                        UpdateStudentButton();
                         
                         Log("Book loaded successfully");
                         await DisplayAlert("Success", $"Book loaded!\nLog file: {GetLogFilePath()}", "OK");
