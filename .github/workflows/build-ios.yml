@@ -35,7 +35,7 @@ jobs:
 
       - name: Restore Dependencies
         run: |
-          dotnet restore ./BookViewer.Maui.csproj /p:TargetFramework=net9.0-ios
+          dotnet restore ./BookViewer.Maui.csproj
 
       - name: Build iOS IPA
         run: |
