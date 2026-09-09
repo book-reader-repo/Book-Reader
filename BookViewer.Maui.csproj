@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
+        <!-- Only build Android on Linux, both on Windows and macOS -->
         <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net9.0-ios;net9.0-android</TargetFrameworks>
-        <TargetFrameworks Condition="'$(OS)' != 'Windows_NT' AND '$(TargetFramework)' == ''">net9.0-ios;net9.0-android</TargetFrameworks>
-        <TargetFrameworks Condition="'$(TargetFramework)' != ''">$(TargetFramework)</TargetFrameworks>
+        <TargetFrameworks Condition="'$(OS)' == 'Unix' AND '$(TargetFramework)' == ''">net9.0-android</TargetFrameworks>
+        <TargetFrameworks Condition="'$(OS)' == 'Unix' AND '$(TargetFramework)' != ''">$(TargetFramework)</TargetFrameworks>
         <OutputType>Exe</OutputType>
         <UseMaui>true</UseMaui>
         <SingleProject>true</SingleProject>
@@ -30,20 +31,10 @@
         <AndroidEnableAot>false</AndroidEnableAot>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-android'">
-        <!-- Android only settings -->
-        <AndroidUseLatestPlatformSdk>false</AndroidUseLatestPlatformSdk>
-    </PropertyGroup>
-
     <ItemGroup>
         <PackageReference Include="Microsoft.Maui.Controls" Version="9.0.0" />
         <PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="9.0.0" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
-    </ItemGroup>
-
-    <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
-        <!-- iOS only items -->
-        <BundleResource Include="Platforms\iOS\**\*" />
     </ItemGroup>
 
     <ItemGroup>
