@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -43,13 +43,24 @@ namespace BookViewer.Services
             {
                 OnProgress?.Invoke(this, 0);
 
-                var downloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer");
-                Directory.CreateDirectory(downloadDir);
+                // Get the books directory
+                var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
+                Directory.CreateDirectory(booksDir);
 
-                var tempDir = Path.Combine(downloadDir, "temp");
-                var finalDir = Path.Combine(downloadDir, "final");
+                var tempDir = Path.Combine(booksDir, "temp");
                 Directory.CreateDirectory(tempDir);
-                Directory.CreateDirectory(finalDir);
+
+                // Final book directory
+                var finalBookDir = Path.Combine(booksDir, $"book_{bookNumber}");
+                
+                // If the book already exists, ask for confirmation
+                if (Directory.Exists(finalBookDir))
+                {
+                    OnError?.Invoke(this, $"Book {bookNumber} already exists. Please delete it first.");
+                    _isDownloading = false;
+                    return;
+                }
 
                 var urlPatterns = new[]
                 {
@@ -98,12 +109,19 @@ namespace BookViewer.Services
                             }
 
                             OnProgress?.Invoke(this, 80);
-                            await CreateFinalStructureAsync(bookNumber, bookExtractDir, finalDir);
+                            
+                            // Create the final directory and copy everything
+                            Directory.CreateDirectory(finalBookDir);
+                            CopyDirectory(bookExtractDir, finalBookDir);
 
+                            // Try to find and copy the book cover image
+                            await CopyBookCoverAsync(bookNumber, finalBookDir);
+
+                            // Delete temp folder
                             try { Directory.Delete(bookExtractDir, true); } catch { }
 
                             OnProgress?.Invoke(this, 100);
-                            OnComplete?.Invoke(this, downloadDir);
+                            OnComplete?.Invoke(this, finalBookDir);
                             _isDownloading = false;
                             return;
                         }
@@ -127,6 +145,77 @@ namespace BookViewer.Services
             {
                 _isDownloading = false;
             }
+        }
+
+        private async Task CopyBookCoverAsync(int bookNumber, string bookDir)
+        {
+            try
+            {
+                // Look for cover image in various locations
+                string[] possibleCoverPaths = new[]
+                {
+                    Path.Combine(bookDir, $"{bookNumber}.png"),
+                    Path.Combine(bookDir, $"book_{bookNumber}.png"),
+                    Path.Combine(bookDir, "cover.png"),
+                    Path.Combine(bookDir, "cover.jpg"),
+                    Path.Combine(bookDir, "images", $"book_{bookNumber}.png"),
+                    Path.Combine(bookDir, "images", $"{bookNumber}.png"),
+                    Path.Combine(bookDir, "resource", $"book_{bookNumber}.png"),
+                };
+
+                string foundCover = null;
+                foreach (var path in possibleCoverPaths)
+                {
+                    if (File.Exists(path))
+                    {
+                        foundCover = path;
+                        break;
+                    }
+                }
+
+                // If no cover found, try to download it
+                if (string.IsNullOrEmpty(foundCover))
+                {
+                    string coverUrl = $"{BaseUrl}/ebook_distribute/V3_otf/{bookNumber}/P02/{bookNumber}.png";
+                    string coverPath = Path.Combine(bookDir, $"{bookNumber}.png");
+                    
+                    if (await DownloadFileAsync(coverUrl, coverPath))
+                    {
+                        foundCover = coverPath;
+                        Log($"Downloaded cover image for book {bookNumber}");
+                    }
+                    else
+                    {
+                        // Try alternative URL
+                        coverUrl = $"{BaseUrl}/ebook_distribute/V3_otf/{bookNumber}/book_{bookNumber}.png";
+                        if (await DownloadFileAsync(coverUrl, coverPath))
+                        {
+                            foundCover = coverPath;
+                            Log($"Downloaded cover image for book {bookNumber} from alternative URL");
+                        }
+                    }
+                }
+                else
+                {
+                    // Copy the found cover to the root with the book number name
+                    string destPath = Path.Combine(bookDir, $"{bookNumber}.png");
+                    if (foundCover != destPath)
+                    {
+                        File.Copy(foundCover, destPath, true);
+                        foundCover = destPath;
+                    }
+                    Log($"Found cover image for book {bookNumber}: {foundCover}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error copying book cover: {ex.Message}");
+            }
+        }
+
+        private void Log(string message)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DownloadService] {message}");
         }
 
         private async Task<bool> DownloadFileAsync(string url, string savePath)
@@ -412,41 +501,6 @@ namespace BookViewer.Services
             }
 
             return null;
-        }
-
-        private async Task CreateFinalStructureAsync(int bookNumber, string extractDir, string finalDir)
-        {
-            var finalBookDir = Path.Combine(finalDir, $"book_{bookNumber}");
-
-            if (Directory.Exists(finalBookDir))
-                Directory.Delete(finalBookDir, true);
-
-            Directory.CreateDirectory(finalBookDir);
-
-            // Copy all items
-            foreach (var item in Directory.GetFileSystemEntries(extractDir))
-            {
-                var name = Path.GetFileName(item);
-                var dest = Path.Combine(finalBookDir, name);
-
-                if (Directory.Exists(item))
-                    CopyDirectory(item, dest);
-                else
-                    File.Copy(item, dest, true);
-            }
-
-            // Create metadata
-            var fileCount = Directory.GetFiles(finalBookDir, "*.*", SearchOption.AllDirectories).Length;
-            var metadata = new
-            {
-                book_number = bookNumber,
-                total_files = fileCount,
-                has_resource = Directory.Exists(Path.Combine(finalBookDir, "resource")),
-                timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
-            };
-
-            var json = JsonSerializer.Serialize(metadata, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(Path.Combine(finalBookDir, "_metadata.json"), json);
         }
 
         private void CopyDirectory(string source, string dest)
