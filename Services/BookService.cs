@@ -93,7 +93,6 @@ namespace BookViewer
         public bool SideBySideMode => _sideBySideMode;
         public double CurrentZoom => _currentZoom;
         
-        // Public properties for answer visibility
         public bool ShowTeacherNotes => _showTeacherNotes;
         public bool ShowStudentAnswers => _showStudentAnswers;
 
@@ -101,7 +100,6 @@ namespace BookViewer
         {
             _showTeacherNotes = show;
             Log($"Teacher notes set to: {show}");
-            // Reload current page to apply changes
             if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
             {
                 _ = LoadPageAsync(_currentPageIndex);
@@ -112,7 +110,6 @@ namespace BookViewer
         {
             _showStudentAnswers = show;
             Log($"Student answers set to: {show}");
-            // Reload current page to apply changes
             if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
             {
                 _ = LoadPageAsync(_currentPageIndex);
@@ -173,20 +170,19 @@ namespace BookViewer
                 Log($"=== LOADING BOOK from: {folderPath} ===");
                 _currentBookPath = folderPath;
                 
-                // Create temp folder for this book
                 _tempFolder = Path.Combine(FileSystem.CacheDirectory, "BookViewer", $"temp_{Guid.NewGuid().ToString().Substring(0, 8)}");
                 Directory.CreateDirectory(_tempFolder);
                 Log($"Temp folder: {_tempFolder}");
                 
                 var bookXmlPath = Path.Combine(folderPath, "book.xml");
-        
+
                 if (!File.Exists(bookXmlPath))
                 {
                     Log($"ERROR: book.xml not found at: {bookXmlPath}");
                     OnStatusChanged?.Invoke(this, "book.xml not found");
                     return false;
                 }
-        
+
                 var folderName = Path.GetFileName(folderPath);
                 var bookIdMatch = Regex.Match(folderName, @"book_(\d+)");
                 if (bookIdMatch.Success)
@@ -194,10 +190,10 @@ namespace BookViewer
                     _currentBookUid = bookIdMatch.Groups[1].Value;
                     Log($"Extracted book ID from folder: {_currentBookUid}");
                 }
-        
+
                 var content = await File.ReadAllTextAsync(bookXmlPath);
                 Log($"book.xml loaded, size: {content.Length} bytes");
-        
+
                 if (string.IsNullOrEmpty(_currentBookUid))
                 {
                     var uidMatch = Regex.Match(content, @"id=""([^""]+)""");
@@ -207,7 +203,7 @@ namespace BookViewer
                         Log($"Extracted Book UID from book.xml: {_currentBookUid}");
                     }
                 }
-        
+
                 bool bookXmlDecrypted = false;
                 if (_decryptionService.IsEncrypted(content))
                 {
@@ -229,16 +225,16 @@ namespace BookViewer
                 {
                     Log("book.xml is already decrypted");
                 }
-        
+
                 _bookTitle = "Unknown Book";
                 var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
                 if (titleMatch.Success) _bookTitle = titleMatch.Groups[1].Value;
                 Log($"Book title: {_bookTitle}");
                 Log($"Book UID: {_currentBookUid}");
-        
+
                 OnBookLoaded?.Invoke(this, _bookTitle);
-        
-                // Only decrypt files if book.xml was encrypted (or if we force decryption)
+
+                // Only decrypt files if book.xml was encrypted or if files need decryption
                 if (bookXmlDecrypted)
                 {
                     await DecryptBookFilesAsync(folderPath);
@@ -253,14 +249,12 @@ namespace BookViewer
                         try
                         {
                             var sampleContent = await File.ReadAllTextAsync(sampleFile);
-                            // If it doesn't contain HTML tags or looks encrypted
                             if (!sampleContent.Contains("<") || !sampleContent.Contains(">") || 
                                 !(sampleContent.Contains("</") || sampleContent.Contains("/>")))
                             {
                                 needsDecryption = true;
                                 break;
                             }
-                            // Check if it contains actual content with classes/divs
                             if (!sampleContent.Contains("class=") && !sampleContent.Contains("<div"))
                             {
                                 needsDecryption = true;
@@ -273,7 +267,7 @@ namespace BookViewer
                             break;
                         }
                     }
-        
+
                     if (needsDecryption)
                     {
                         Log("Some files appear to still be encrypted, running decryption...");
@@ -284,17 +278,17 @@ namespace BookViewer
                         Log("All files appear to be already decrypted, skipping decryption");
                     }
                 }
-        
+
                 _pageFiles.Clear();
-        
+
                 var stepsFiles = Directory.GetFiles(folderPath, "steps_*.html", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(folderPath, "step_*.html", SearchOption.AllDirectories))
                     .Where(f => IsPureStepsFile(Path.GetFileName(f)))
                     .Distinct()
                     .ToList();
-        
+
                 Log($"Found {stepsFiles.Count} step files");
-        
+
                 _pageFiles = stepsFiles
                     .GroupBy(f => Path.GetDirectoryName(f) ?? "")
                     .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
@@ -305,24 +299,24 @@ namespace BookViewer
                          .Select(x => x.Path)
                     )
                     .ToList();
-        
+
                 Log($"Sorted {_pageFiles.Count} page files");
-        
+
                 foreach (var file in _pageFiles.Take(5))
                 {
                     Log($"  Page: {Path.GetFileName(file)}");
                 }
                 if (_pageFiles.Count > 5) Log($"  ... and {_pageFiles.Count - 5} more");
-        
+
                 OnPagesLoaded?.Invoke(this, _pageFiles);
-        
+
                 if (_pageFiles.Count > 0)
                 {
                     _currentPageIndex = 0;
                     Log($"Loading first page: {Path.GetFileName(_pageFiles[0])}");
                     await LoadPageAsync(0);
                 }
-        
+
                 OnStatusChanged?.Invoke(this, $"Loaded: {_bookTitle} ({_pageFiles.Count} pages)");
                 Log($"=== BOOK LOADED SUCCESSFULLY ===");
                 Log($"Log file: {GetLogFilePath()}");
@@ -336,9 +330,7 @@ namespace BookViewer
                 return false;
             }
         }
-        // ============================================================
-        // Get Red Answer Content ONLY - For overlay WebView
-        // ============================================================
+
         // ============================================================
         // Get Red Answer Content ONLY - For separate views
         // ============================================================
@@ -349,13 +341,11 @@ namespace BookViewer
                 var directory = Path.GetDirectoryName(filePath) ?? "";
                 var fileName = Path.GetFileNameWithoutExtension(filePath) ?? "";
                 Log($"=== GET RED ANSWER CONTENT for: {fileName} type: {answerType} ===");
-        
-                // Find redAnswer file
+
                 string redAnswerPath = Path.Combine(directory, fileName + "_redAnswer.html");
                 
                 if (!File.Exists(redAnswerPath))
                 {
-                    // Try alternative patterns
                     string[] altPatterns;
                     if (answerType == "teacherNotes")
                     {
@@ -379,7 +369,7 @@ namespace BookViewer
                             Path.Combine(directory, "redAnswer.html")
                         };
                     }
-        
+
                     foreach (var alt in altPatterns)
                     {
                         if (File.Exists(alt))
@@ -390,37 +380,33 @@ namespace BookViewer
                         }
                     }
                 }
-        
+
                 if (!File.Exists(redAnswerPath))
                 {
                     Log($"No redAnswer file found for: {fileName}");
                     return "";
                 }
-        
+
                 string content = await File.ReadAllTextAsync(redAnswerPath);
                 Log($"RedAnswer content size: {content.Length} bytes");
-        
-                // Remove display:none and visibility:hidden
+
                 content = Regex.Replace(content, @"display\s*:\s*none\s*;?", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"display\s*:\s*none\s*(?=[;\s}])", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"visibility\s*:\s*hidden\s*;?", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"style\s*=\s*[""']\s*[""']", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"display\s*:\s*none", "", RegexOptions.IgnoreCase);
-        
-                // Extract body content
+
                 var bodyMatch = Regex.Match(content, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
                 if (bodyMatch.Success)
                 {
                     content = bodyMatch.Groups[1].Value;
                     Log($"Extracted content from body tag, size: {content.Length}");
                 }
-        
-                // Extract content based on type
+
                 string extractedContent = "";
                 
                 if (answerType == "teacherNotes")
                 {
-                    // Find teacher notes - look for tbnote class
                     var matches = Regex.Matches(content, 
                         @"<[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
                         RegexOptions.IgnoreCase);
@@ -435,7 +421,6 @@ namespace BookViewer
                     }
                     else
                     {
-                        // Try to find any element with "teacher" in it
                         var matches2 = Regex.Matches(content, 
                             @"<[^>]*>[^<]*teacher[^<]*</[^>]*>", 
                             RegexOptions.IgnoreCase);
@@ -449,9 +434,8 @@ namespace BookViewer
                         }
                     }
                 }
-                else // studentAnswers
+                else
                 {
-                    // Find student answers - look for sa class
                     var matches = Regex.Matches(content, 
                         @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
                         RegexOptions.IgnoreCase);
@@ -466,7 +450,6 @@ namespace BookViewer
                     }
                     else
                     {
-                        // Try to find any element with "student" or "answer" in it
                         var matches2 = Regex.Matches(content, 
                             @"<[^>]*>[^<]*(?:student|answer)[^<]*</[^>]*>", 
                             RegexOptions.IgnoreCase);
@@ -480,60 +463,6 @@ namespace BookViewer
                         }
                         else
                         {
-                            // Use all content as fallback for student answers
-                            extractedContent = content;
-                            Log("Using all content as student answers (fallback)");
-                        }
-                    }
-                }
-        
-                if (string.IsNullOrEmpty(extractedContent))
-                {
-                    Log($"No {answerType} content found");
-                    return "";
-                }
-        
-                Log($"Extracted {answerType} content: {extractedContent.Length} bytes");
-                return extractedContent;
-            }
-            catch (Exception ex)
-            {
-                Log($"Error getting red answer content: {ex.Message}");
-                return "";
-            }
-        }
-                else // studentAnswers
-                {
-                    // Find student answers - look for sa class
-                    var matches = Regex.Matches(content, 
-                        @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
-                        RegexOptions.IgnoreCase);
-                    
-                    if (matches.Count > 0)
-                    {
-                        Log($"Found {matches.Count} student answer elements");
-                        foreach (Match match in matches)
-                        {
-                            extractedContent += match.Value + "\n";
-                        }
-                    }
-                    else
-                    {
-                        // Try to find any element with "student" or "answer" in it
-                        var matches2 = Regex.Matches(content, 
-                            @"<[^>]*>[^<]*(?:student|answer)[^<]*</[^>]*>", 
-                            RegexOptions.IgnoreCase);
-                        if (matches2.Count > 0)
-                        {
-                            Log($"Found {matches2.Count} student answer elements (fallback)");
-                            foreach (Match match in matches2)
-                            {
-                                extractedContent += match.Value + "\n";
-                            }
-                        }
-                        else
-                        {
-                            // Use all content as fallback for student answers
                             extractedContent = content;
                             Log("Using all content as student answers (fallback)");
                         }
@@ -892,221 +821,6 @@ namespace BookViewer
         }
 
         // ============================================================
-        // Process Red Answers - For the main WebView (overlay mode)
-        // ============================================================
-        private async Task<string> ProcessRedAnswersToTemp(string filePath, string answerType)
-        {
-            try
-            {
-                var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileNameWithoutExtension(filePath) ?? "";
-                Log($"=== PROCESS RED ANSWERS for: {fileName} type: {answerType} ===");
-
-                string redAnswerPath = Path.Combine(directory, fileName + "_redAnswer.html");
-                Log($"Looking for redAnswer at: {redAnswerPath}");
-                
-                if (!File.Exists(redAnswerPath))
-                {
-                    // Try alternative patterns
-                    string[] altPatterns;
-                    if (answerType == "teacherNotes")
-                    {
-                        altPatterns = new[]
-                        {
-                            Path.Combine(directory, fileName + "_teacherNotes.html"),
-                            Path.Combine(directory, fileName + "_teacher.html"),
-                            Path.Combine(directory, "teacherNotes.html"),
-                            Path.Combine(directory, "teacher.html")
-                        };
-                    }
-                    else
-                    {
-                        altPatterns = new[]
-                        {
-                            Path.Combine(directory, fileName + "_studentAnswers.html"),
-                            Path.Combine(directory, fileName + "_studentAnswer.html"),
-                            Path.Combine(directory, fileName + "_student.html"),
-                            Path.Combine(directory, "studentAnswers.html"),
-                            Path.Combine(directory, "studentAnswer.html"),
-                            Path.Combine(directory, "redAnswer.html")
-                        };
-                    }
-
-                    foreach (var alt in altPatterns)
-                    {
-                        if (File.Exists(alt))
-                        {
-                            redAnswerPath = alt;
-                            Log($"Found alternative redAnswer at: {redAnswerPath}");
-                            break;
-                        }
-                    }
-                }
-
-                if (!File.Exists(redAnswerPath))
-                {
-                    Log($"No redAnswer file found for: {fileName} type: {answerType}");
-                    return "";
-                }
-
-                string redAnswerContent = await File.ReadAllTextAsync(redAnswerPath);
-                Log($"RedAnswer content size: {redAnswerContent.Length} bytes");
-
-                // Remove display:none and visibility:hidden
-                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none\s*;?", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none\s*(?=[;\s}])", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"visibility\s*:\s*hidden\s*;?", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"style\s*=\s*[""']\s*[""']", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none", "", RegexOptions.IgnoreCase);
-                
-                // Also remove display:none from style attributes
-                redAnswerContent = Regex.Replace(redAnswerContent, 
-                    @"style\s*=\s*[""']([^""']*)display\s*:\s*none\s*;?\s*([^""']*)[""']", 
-                    m => {
-                        string before = m.Groups[1].Value;
-                        string after = m.Groups[2].Value;
-                        string combined = (before + " " + after).Trim();
-                        if (string.IsNullOrEmpty(combined))
-                            return "";
-                        return $"style=\"{combined}\"";
-                    }, RegexOptions.IgnoreCase);
-                
-                Log($"After removing display:none, content size: {redAnswerContent.Length}");
-
-                // Extract body content if present
-                var bodyMatch = Regex.Match(redAnswerContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
-                if (bodyMatch.Success)
-                {
-                    redAnswerContent = bodyMatch.Groups[1].Value;
-                    Log($"Extracted content from body tag, size: {redAnswerContent.Length}");
-                }
-
-                // Extract content based on type
-                string extractedContent = "";
-                
-                if (answerType == "teacherNotes")
-                {
-                    // Find teacher notes - look for tbnote class
-                    var matches = Regex.Matches(redAnswerContent, 
-                        @"<[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
-                        RegexOptions.IgnoreCase);
-                    
-                    if (matches.Count > 0)
-                    {
-                        Log($"Found {matches.Count} teacher note elements");
-                        foreach (Match match in matches)
-                        {
-                            extractedContent += match.Value;
-                        }
-                    }
-                    else
-                    {
-                        // Try to find any element with "teacher" in it
-                        var matches2 = Regex.Matches(redAnswerContent, 
-                            @"<[^>]*>[^<]*teacher[^<]*</[^>]*>", 
-                            RegexOptions.IgnoreCase);
-                        if (matches2.Count > 0)
-                        {
-                            Log($"Found {matches2.Count} teacher content elements (fallback)");
-                            foreach (Match match in matches2)
-                            {
-                                extractedContent += match.Value;
-                            }
-                        }
-                        else
-                        {
-                            // Look for SVG elements with tbnote class
-                            var svgMatches = Regex.Matches(redAnswerContent, 
-                                @"<svg[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</svg>", 
-                                RegexOptions.IgnoreCase);
-                            if (svgMatches.Count > 0)
-                            {
-                                Log($"Found {svgMatches.Count} SVG teacher note elements");
-                                foreach (Match match in svgMatches)
-                                {
-                                    extractedContent += match.Value;
-                                }
-                            }
-                        }
-                    }
-                }
-                else // studentAnswers
-                {
-                    // Find student answers - look for sa class
-                    var matches = Regex.Matches(redAnswerContent, 
-                        @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
-                        RegexOptions.IgnoreCase);
-                    
-                    if (matches.Count > 0)
-                    {
-                        Log($"Found {matches.Count} student answer elements");
-                        foreach (Match match in matches)
-                        {
-                            extractedContent += match.Value;
-                        }
-                    }
-                    else
-                    {
-                        // Try to find any element with "student" or "answer" in it
-                        var matches2 = Regex.Matches(redAnswerContent, 
-                            @"<[^>]*>[^<]*(?:student|answer)[^<]*</[^>]*>", 
-                            RegexOptions.IgnoreCase);
-                        if (matches2.Count > 0)
-                        {
-                            Log($"Found {matches2.Count} student answer elements (fallback)");
-                            foreach (Match match in matches2)
-                            {
-                                extractedContent += match.Value;
-                            }
-                        }
-                        else
-                        {
-                            // Use all content as fallback for student answers
-                            extractedContent = redAnswerContent;
-                            Log("Using all content as student answers (fallback)");
-                        }
-                    }
-                }
-
-                if (string.IsNullOrEmpty(extractedContent))
-                {
-                    Log($"No {answerType} content found");
-                    return "";
-                }
-
-                // Determine display based on state
-                bool shouldShow = (answerType == "teacherNotes" && _showTeacherNotes) ||
-                                  (answerType == "studentAnswers" && _showStudentAnswers);
-                
-                string displayStyle = shouldShow ? "inline-block" : "none";
-                string typeAttribute = answerType == "teacherNotes" ? "teacherNotes" : "studentAnswers";
-                
-                Log($"Display {answerType}: {displayStyle} (show: {shouldShow})");
-
-                // Wrap with redanswertype attribute
-                string wrappedContent = $@"
-                    <div redanswertype='{typeAttribute}' style='position:relative; z-index:10; display:{displayStyle}; pointer-events:none;'>
-                        {extractedContent}
-                    </div>";
-
-                // Save to temp file
-                string tempFilePath = Path.Combine(_tempFolder, $"{fileName}_{answerType}.html");
-                await File.WriteAllTextAsync(tempFilePath, wrappedContent);
-                Log($"Saved processed {answerType} to temp: {tempFilePath} ({wrappedContent.Length} bytes)");
-
-                return tempFilePath;
-            }
-            catch (Exception ex)
-            {
-                Log($"Error processing {answerType}: {ex.Message}");
-                return "";
-            }
-        }
-        
-        // ============================================================
-        // Decrypt all files in the book directory - Only if needed
-        // ============================================================
-        // ============================================================
         // Decrypt all files in the book directory - Only if needed
         // ============================================================
         private async Task DecryptBookFilesAsync(string folderPath)
@@ -1119,32 +833,28 @@ namespace BookViewer
                 var htmlFiles = Directory.GetFiles(folderPath, "*.html", SearchOption.AllDirectories).ToList();
                 var xmlFiles = Directory.GetFiles(folderPath, "*.xml", SearchOption.AllDirectories).ToList();
                 var htmFiles = Directory.GetFiles(folderPath, "*.htm", SearchOption.AllDirectories).ToList();
-        
+
                 Log($"Found {htmlFiles.Count} HTML files, {xmlFiles.Count} XML files, {htmFiles.Count} HTM files");
-        
+
                 int bookKey = _decryptionService.CalculateKey(_currentBookUid);
                 Log($"Book Key: {bookKey}");
-        
+
                 int decryptedCount = 0;
-                int skippedCount = 0;
                 int alreadyDecryptedCount = 0;
-        
-                // Create list of all XML and HTM files
+
                 var allXmlAndHtmFiles = new List<string>();
                 allXmlAndHtmFiles.AddRange(xmlFiles);
                 allXmlAndHtmFiles.AddRange(htmFiles);
-        
-                // Check if HTML files are already decrypted by sampling one file
+
+                // Check if HTML files are already decrypted
                 bool needsDecryption = false;
                 if (htmlFiles.Count > 0)
                 {
                     var sampleFile = htmlFiles[0];
                     var sampleContent = await File.ReadAllTextAsync(sampleFile);
-                    // If the file contains HTML tags and doesn't look encrypted, skip decryption
                     if (sampleContent.Contains("<") && sampleContent.Contains(">") && 
                         (sampleContent.Contains("</") || sampleContent.Contains("/>")))
                     {
-                        // Check if it's actually decrypted content (contains divs with classes, etc.)
                         if (sampleContent.Contains("class=") || sampleContent.Contains("<div"))
                         {
                             needsDecryption = false;
@@ -1164,48 +874,7 @@ namespace BookViewer
                 {
                     needsDecryption = true;
                 }
-        
-                // If all HTML files appear to be already decrypted, skip decryption entirely
-                if (!needsDecryption && htmlFiles.Count > 0)
-                {
-                    Log("✅ All HTML files appear to be already decrypted. Skipping decryption.");
-                    
-                    // Still need to decrypt XML/HTM files if they're encrypted
-                    Log("📄 Checking XML/HTM files...");
-                    foreach (var file in allXmlAndHtmFiles)
-                    {
-                        try
-                        {
-                            var fileName = Path.GetFileName(file);
-                            var content = await File.ReadAllTextAsync(file);
-        
-                            if (_decryptionService.IsEncrypted(content))
-                            {
-                                Log($"  🔓 Decrypting XML/HTM: {fileName}");
-                                string decryptedContent = _decryptionService.DecryptXmlOrHtm(content, fileName);
-                                await File.WriteAllTextAsync(file, decryptedContent);
-                                decryptedCount++;
-                                Log($"    ✅ Decrypted: {fileName}");
-                            }
-                            else
-                            {
-                                alreadyDecryptedCount++;
-                                Log($"  ⏭️  {fileName}: Already decrypted, skipping");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
-                        }
-                    }
-                    
-                    Log($"=== Summary ===");
-                    Log($"✅ XML/HTM decrypted: {decryptedCount} files");
-                    Log($"⏭️  XML/HTM skipped (already decrypted): {alreadyDecryptedCount} files");
-                    Log($"⏭️  HTML skipped (already decrypted): {htmlFiles.Count} files");
-                    return;
-                }
-        
+
                 // Decrypt XML and HTM files
                 Log("📄 Processing XML and HTM files...");
                 foreach (var file in allXmlAndHtmFiles)
@@ -1214,14 +883,14 @@ namespace BookViewer
                     {
                         var fileName = Path.GetFileName(file);
                         var content = await File.ReadAllTextAsync(file);
-        
+
                         if (!_decryptionService.IsEncrypted(content))
                         {
                             Log($"  ⏭️  {fileName}: Already decrypted, skipping");
                             alreadyDecryptedCount++;
                             continue;
                         }
-        
+
                         Log($"  🔓 Decrypting: {fileName}");
                         string decryptedContent = _decryptionService.DecryptXmlOrHtm(content, fileName);
                         await File.WriteAllTextAsync(file, decryptedContent);
@@ -1233,64 +902,68 @@ namespace BookViewer
                         Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
                     }
                 }
-        
+
                 Log($"XML/HTM files: {decryptedCount} decrypted, {alreadyDecryptedCount} already decrypted");
                 Log("");
-        
-                // Decrypt HTML files (only if they need it)
-                Log("📄 Processing HTML files...");
-                Log($"Using Book Key: {bookKey}");
-        
-                int htmlDecryptedCount = 0;
-                int htmlSkippedCount = 0;
-        
-                foreach (var file in htmlFiles)
+
+                // Decrypt HTML files if needed
+                if (needsDecryption && htmlFiles.Count > 0)
                 {
-                    try
+                    Log("📄 Processing HTML files...");
+                    Log($"Using Book Key: {bookKey}");
+
+                    int htmlDecryptedCount = 0;
+                    int htmlSkippedCount = 0;
+
+                    foreach (var file in htmlFiles)
                     {
-                        var fileName = Path.GetFileName(file);
-                        var content = await File.ReadAllTextAsync(file);
-        
-                        // Check if file is already decrypted (contains HTML tags)
-                        bool isDecrypted = content.Contains("<") && content.Contains(">") && 
-                                           (content.Contains("</") || content.Contains("/>")) &&
-                                           (content.Contains("class=") || content.Contains("<div") || content.Contains("id="));
-        
-                        if (isDecrypted)
+                        try
                         {
-                            Log($"  ⏭️  {fileName}: Already decrypted, skipping");
-                            htmlSkippedCount++;
-                            continue;
+                            var fileName = Path.GetFileName(file);
+                            var content = await File.ReadAllTextAsync(file);
+
+                            bool isDecrypted = content.Contains("<") && content.Contains(">") && 
+                                               (content.Contains("</") || content.Contains("/>")) &&
+                                               (content.Contains("class=") || content.Contains("<div") || content.Contains("id="));
+
+                            if (isDecrypted)
+                            {
+                                Log($"  ⏭️  {fileName}: Already decrypted, skipping");
+                                htmlSkippedCount++;
+                                continue;
+                            }
+
+                            Log($"  🔓 Decrypting HTML: {fileName} (using Book Key: {bookKey})");
+                            string decryptedContent = _decryptionService.DecryptWithKey(content, bookKey);
+                            await File.WriteAllTextAsync(file, decryptedContent);
+                            htmlDecryptedCount++;
+                            
+                            if (decryptedContent.Contains("<") && decryptedContent.Contains(">"))
+                            {
+                                Log($"    ✅ Decrypted: {fileName} (valid HTML)");
+                            }
+                            else
+                            {
+                                Log($"    ⚠️ Decrypted: {fileName} (may still be encrypted)");
+                            }
                         }
-        
-                        Log($"  🔓 Decrypting HTML: {fileName} (using Book Key: {bookKey})");
-                        string decryptedContent = _decryptionService.DecryptWithKey(content, bookKey);
-                        await File.WriteAllTextAsync(file, decryptedContent);
-                        htmlDecryptedCount++;
-                        
-                        if (decryptedContent.Contains("<") && decryptedContent.Contains(">"))
+                        catch (Exception ex)
                         {
-                            Log($"    ✅ Decrypted: {fileName} (valid HTML)");
-                        }
-                        else
-                        {
-                            Log($"    ⚠️ Decrypted: {fileName} (may still be encrypted)");
+                            Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
-                    }
+
+                    Log($"HTML files: {htmlDecryptedCount} decrypted, {htmlSkippedCount} already decrypted");
+                    Log("");
                 }
-        
-                Log($"HTML files: {htmlDecryptedCount} decrypted, {htmlSkippedCount} already decrypted");
-                Log("");
-        
+                else
+                {
+                    Log("⏭️ Skipping HTML decryption - files appear to be already decrypted");
+                }
+
                 Log("=== Summary ===");
                 Log($"✅ XML/HTM decrypted: {decryptedCount} files");
                 Log($"⏭️  XML/HTM skipped (already decrypted): {alreadyDecryptedCount} files");
-                Log($"✅ HTML decrypted: {htmlDecryptedCount} files");
-                Log($"⏭️  HTML skipped (already decrypted): {htmlSkippedCount} files");
             }
             catch (Exception ex)
             {
@@ -1391,11 +1064,9 @@ namespace BookViewer
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
                     Log($"Font CSS: {(string.IsNullOrEmpty(fontCss) ? "NOT FOUND" : "FOUND")}");
 
-                    // Process red answers and save to temp files
                     string teacherTempPath = await ProcessRedAnswersToTemp(filePath, "teacherNotes");
                     string studentTempPath = await ProcessRedAnswersToTemp(filePath, "studentAnswers");
 
-                    // Get the processed content from temp files
                     string teacherAnswerHtml = "";
                     string studentAnswerHtml = "";
                     
@@ -1514,6 +1185,204 @@ namespace BookViewer
         }
 
         // ============================================================
+        // Process Red Answers - For the main WebView (overlay mode)
+        // ============================================================
+        private async Task<string> ProcessRedAnswersToTemp(string filePath, string answerType)
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(filePath) ?? "";
+                var fileName = Path.GetFileNameWithoutExtension(filePath) ?? "";
+                Log($"=== PROCESS RED ANSWERS for: {fileName} type: {answerType} ===");
+
+                string redAnswerPath = Path.Combine(directory, fileName + "_redAnswer.html");
+                Log($"Looking for redAnswer at: {redAnswerPath}");
+                
+                if (!File.Exists(redAnswerPath))
+                {
+                    string[] altPatterns;
+                    if (answerType == "teacherNotes")
+                    {
+                        altPatterns = new[]
+                        {
+                            Path.Combine(directory, fileName + "_teacherNotes.html"),
+                            Path.Combine(directory, fileName + "_teacher.html"),
+                            Path.Combine(directory, "teacherNotes.html"),
+                            Path.Combine(directory, "teacher.html")
+                        };
+                    }
+                    else
+                    {
+                        altPatterns = new[]
+                        {
+                            Path.Combine(directory, fileName + "_studentAnswers.html"),
+                            Path.Combine(directory, fileName + "_studentAnswer.html"),
+                            Path.Combine(directory, fileName + "_student.html"),
+                            Path.Combine(directory, "studentAnswers.html"),
+                            Path.Combine(directory, "studentAnswer.html"),
+                            Path.Combine(directory, "redAnswer.html")
+                        };
+                    }
+
+                    foreach (var alt in altPatterns)
+                    {
+                        if (File.Exists(alt))
+                        {
+                            redAnswerPath = alt;
+                            Log($"Found alternative redAnswer at: {redAnswerPath}");
+                            break;
+                        }
+                    }
+                }
+
+                if (!File.Exists(redAnswerPath))
+                {
+                    Log($"No redAnswer file found for: {fileName} type: {answerType}");
+                    return "";
+                }
+
+                string redAnswerContent = await File.ReadAllTextAsync(redAnswerPath);
+                Log($"RedAnswer content size: {redAnswerContent.Length} bytes");
+
+                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none\s*;?", "", RegexOptions.IgnoreCase);
+                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none\s*(?=[;\s}])", "", RegexOptions.IgnoreCase);
+                redAnswerContent = Regex.Replace(redAnswerContent, @"visibility\s*:\s*hidden\s*;?", "", RegexOptions.IgnoreCase);
+                redAnswerContent = Regex.Replace(redAnswerContent, @"style\s*=\s*[""']\s*[""']", "", RegexOptions.IgnoreCase);
+                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none", "", RegexOptions.IgnoreCase);
+                
+                redAnswerContent = Regex.Replace(redAnswerContent, 
+                    @"style\s*=\s*[""']([^""']*)display\s*:\s*none\s*;?\s*([^""']*)[""']", 
+                    m => {
+                        string before = m.Groups[1].Value;
+                        string after = m.Groups[2].Value;
+                        string combined = (before + " " + after).Trim();
+                        if (string.IsNullOrEmpty(combined))
+                            return "";
+                        return $"style=\"{combined}\"";
+                    }, RegexOptions.IgnoreCase);
+                
+                Log($"After removing display:none, content size: {redAnswerContent.Length}");
+
+                var bodyMatch = Regex.Match(redAnswerContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
+                if (bodyMatch.Success)
+                {
+                    redAnswerContent = bodyMatch.Groups[1].Value;
+                    Log($"Extracted content from body tag, size: {redAnswerContent.Length}");
+                }
+
+                string extractedContent = "";
+                
+                if (answerType == "teacherNotes")
+                {
+                    var matches = Regex.Matches(redAnswerContent, 
+                        @"<[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
+                        RegexOptions.IgnoreCase);
+                    
+                    if (matches.Count > 0)
+                    {
+                        Log($"Found {matches.Count} teacher note elements");
+                        foreach (Match match in matches)
+                        {
+                            extractedContent += match.Value;
+                        }
+                    }
+                    else
+                    {
+                        var matches2 = Regex.Matches(redAnswerContent, 
+                            @"<[^>]*>[^<]*teacher[^<]*</[^>]*>", 
+                            RegexOptions.IgnoreCase);
+                        if (matches2.Count > 0)
+                        {
+                            Log($"Found {matches2.Count} teacher content elements (fallback)");
+                            foreach (Match match in matches2)
+                            {
+                                extractedContent += match.Value;
+                            }
+                        }
+                        else
+                        {
+                            var svgMatches = Regex.Matches(redAnswerContent, 
+                                @"<svg[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</svg>", 
+                                RegexOptions.IgnoreCase);
+                            if (svgMatches.Count > 0)
+                            {
+                                Log($"Found {svgMatches.Count} SVG teacher note elements");
+                                foreach (Match match in svgMatches)
+                                {
+                                    extractedContent += match.Value;
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    var matches = Regex.Matches(redAnswerContent, 
+                        @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
+                        RegexOptions.IgnoreCase);
+                    
+                    if (matches.Count > 0)
+                    {
+                        Log($"Found {matches.Count} student answer elements");
+                        foreach (Match match in matches)
+                        {
+                            extractedContent += match.Value;
+                        }
+                    }
+                    else
+                    {
+                        var matches2 = Regex.Matches(redAnswerContent, 
+                            @"<[^>]*>[^<]*(?:student|answer)[^<]*</[^>]*>", 
+                            RegexOptions.IgnoreCase);
+                        if (matches2.Count > 0)
+                        {
+                            Log($"Found {matches2.Count} student answer elements (fallback)");
+                            foreach (Match match in matches2)
+                            {
+                                extractedContent += match.Value;
+                            }
+                        }
+                        else
+                        {
+                            extractedContent = redAnswerContent;
+                            Log("Using all content as student answers (fallback)");
+                        }
+                    }
+                }
+
+                if (string.IsNullOrEmpty(extractedContent))
+                {
+                    Log($"No {answerType} content found");
+                    return "";
+                }
+
+                bool shouldShow = (answerType == "teacherNotes" && _showTeacherNotes) ||
+                                  (answerType == "studentAnswers" && _showStudentAnswers);
+                
+                string displayStyle = shouldShow ? "inline-block" : "none";
+                string typeAttribute = answerType == "teacherNotes" ? "teacherNotes" : "studentAnswers";
+                
+                Log($"Display {answerType}: {displayStyle} (show: {shouldShow})");
+
+                string wrappedContent = $@"
+                    <div redanswertype='{typeAttribute}' style='position:relative; z-index:10; display:{displayStyle}; pointer-events:none;'>
+                        {extractedContent}
+                    </div>";
+
+                string tempFilePath = Path.Combine(_tempFolder, $"{fileName}_{answerType}.html");
+                await File.WriteAllTextAsync(tempFilePath, wrappedContent);
+                Log($"Saved processed {answerType} to temp: {tempFilePath} ({wrappedContent.Length} bytes)");
+
+                return tempFilePath;
+            }
+            catch (Exception ex)
+            {
+                Log($"Error processing {answerType}: {ex.Message}");
+                return "";
+            }
+        }
+
+        // ============================================================
         // Build Overlay HTML - For the main WebView
         // ============================================================
         private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss, string teacherAnswerHtml, string studentAnswerHtml)
@@ -1548,7 +1417,7 @@ namespace BookViewer
                         width: 100%;
                         height: 100%;
                         overflow: auto;
-                        background: transparent !important;
+                        background: #1a1a2e;
                         -webkit-font-smoothing: antialiased;
                         -moz-osx-font-smoothing: grayscale;
                     }}
@@ -1560,7 +1429,6 @@ namespace BookViewer
                         padding: 10px;
                         margin: 0;
                         overflow: auto;
-                        background: transparent !important;
                     }}
                     .page-wrapper {{
                         display: flex;
@@ -1576,7 +1444,7 @@ namespace BookViewer
                         width: 1024px;
                         height: 1344px;
                         flex-shrink: 0;
-                        background: transparent !important;
+                        background: #2d2d44;
                         box-shadow: 0 0 30px rgba(0,0,0,0.5);
                         overflow: hidden;
                         border-radius: 4px;
@@ -1618,7 +1486,6 @@ namespace BookViewer
                         position: absolute !important;
                     }}
                     
-                    /* Teacher Notes styles - hidden by default, shown via inline style */
                     [redanswertype='teacherNotes'] {{
                         z-index: 10;
                         background: rgba(255, 255, 0, 0.15);
@@ -1628,7 +1495,6 @@ namespace BookViewer
                         pointer-events: none;
                     }}
                     
-                    /* Student Answers styles - hidden by default, shown via inline style */
                     [redanswertype='studentAnswers'] {{
                         z-index: 10;
                         background: rgba(0, 255, 0, 0.15);
