@@ -36,9 +36,10 @@
         <BundleResource Include="Platforms\iOS\**\*" />
     </ItemGroup>
 
-    <!-- Android specific items -->
+    <!-- Android specific items - Only include resource files, NOT source files -->
     <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-android'">
-        <AndroidResource Include="Platforms\Android\**\*" />
+        <AndroidResource Include="Platforms\Android\Resources\**\*" />
+        <AndroidResource Include="Platforms\Android\AndroidManifest.xml" />
     </ItemGroup>
 
     <ItemGroup>
