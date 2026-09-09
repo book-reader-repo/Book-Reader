@@ -339,6 +339,9 @@ namespace BookViewer
         // ============================================================
         // Get Red Answer Content ONLY - For overlay WebView
         // ============================================================
+        // ============================================================
+        // Get Red Answer Content ONLY - For separate views
+        // ============================================================
         public async Task<string> GetRedAnswerContentAsync(string filePath, string answerType)
         {
             try
@@ -346,7 +349,7 @@ namespace BookViewer
                 var directory = Path.GetDirectoryName(filePath) ?? "";
                 var fileName = Path.GetFileNameWithoutExtension(filePath) ?? "";
                 Log($"=== GET RED ANSWER CONTENT for: {fileName} type: {answerType} ===");
-
+        
                 // Find redAnswer file
                 string redAnswerPath = Path.Combine(directory, fileName + "_redAnswer.html");
                 
@@ -376,7 +379,7 @@ namespace BookViewer
                             Path.Combine(directory, "redAnswer.html")
                         };
                     }
-
+        
                     foreach (var alt in altPatterns)
                     {
                         if (File.Exists(alt))
@@ -387,23 +390,23 @@ namespace BookViewer
                         }
                     }
                 }
-
+        
                 if (!File.Exists(redAnswerPath))
                 {
                     Log($"No redAnswer file found for: {fileName}");
                     return "";
                 }
-
+        
                 string content = await File.ReadAllTextAsync(redAnswerPath);
                 Log($"RedAnswer content size: {content.Length} bytes");
-
+        
                 // Remove display:none and visibility:hidden
                 content = Regex.Replace(content, @"display\s*:\s*none\s*;?", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"display\s*:\s*none\s*(?=[;\s}])", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"visibility\s*:\s*hidden\s*;?", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"style\s*=\s*[""']\s*[""']", "", RegexOptions.IgnoreCase);
                 content = Regex.Replace(content, @"display\s*:\s*none", "", RegexOptions.IgnoreCase);
-
+        
                 // Extract body content
                 var bodyMatch = Regex.Match(content, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
                 if (bodyMatch.Success)
@@ -411,7 +414,7 @@ namespace BookViewer
                     content = bodyMatch.Groups[1].Value;
                     Log($"Extracted content from body tag, size: {content.Length}");
                 }
-
+        
                 // Extract content based on type
                 string extractedContent = "";
                 
@@ -444,23 +447,61 @@ namespace BookViewer
                                 extractedContent += match.Value + "\n";
                             }
                         }
+                    }
+                }
+                else // studentAnswers
+                {
+                    // Find student answers - look for sa class
+                    var matches = Regex.Matches(content, 
+                        @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
+                        RegexOptions.IgnoreCase);
+                    
+                    if (matches.Count > 0)
+                    {
+                        Log($"Found {matches.Count} student answer elements");
+                        foreach (Match match in matches)
+                        {
+                            extractedContent += match.Value + "\n";
+                        }
+                    }
+                    else
+                    {
+                        // Try to find any element with "student" or "answer" in it
+                        var matches2 = Regex.Matches(content, 
+                            @"<[^>]*>[^<]*(?:student|answer)[^<]*</[^>]*>", 
+                            RegexOptions.IgnoreCase);
+                        if (matches2.Count > 0)
+                        {
+                            Log($"Found {matches2.Count} student answer elements (fallback)");
+                            foreach (Match match in matches2)
+                            {
+                                extractedContent += match.Value + "\n";
+                            }
+                        }
                         else
                         {
-                            // Look for SVG elements with tbnote class
-                            var svgMatches = Regex.Matches(content, 
-                                @"<svg[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</svg>", 
-                                RegexOptions.IgnoreCase);
-                            if (svgMatches.Count > 0)
-                            {
-                                Log($"Found {svgMatches.Count} SVG teacher note elements");
-                                foreach (Match match in svgMatches)
-                                {
-                                    extractedContent += match.Value + "\n";
-                                }
-                            }
+                            // Use all content as fallback for student answers
+                            extractedContent = content;
+                            Log("Using all content as student answers (fallback)");
                         }
                     }
                 }
+        
+                if (string.IsNullOrEmpty(extractedContent))
+                {
+                    Log($"No {answerType} content found");
+                    return "";
+                }
+        
+                Log($"Extracted {answerType} content: {extractedContent.Length} bytes");
+                return extractedContent;
+            }
+            catch (Exception ex)
+            {
+                Log($"Error getting red answer content: {ex.Message}");
+                return "";
+            }
+        }
                 else // studentAnswers
                 {
                     // Find student answers - look for sa class
