@@ -11,4 +11,4 @@ This software is CURRENTLY in DEVELOPMENT, expect lots of bugs.
 Please feel free to report any errors including but not limited to English Mistakes.
 
 ## Start
-Grab a ipa file (currently only iOS support) from the actions tab.
+Grab a ipa file (for iOS) or an apk (for Android) from the actions tab.
