@@ -34,146 +34,29 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                    <Button x:Name="OpenButton" 
-                            Grid.Column="0"
-                            Text="📂 Open" 
-                            Clicked="OnOpenBookClicked"
-                            BackgroundColor="#0f3460"
-                            TextColor="White"
-                            Padding="10,6"/>
+                <Button x:Name="OpenButton" Grid.Column="0" Text="📂 Open" Clicked="OnOpenBookClicked" BackgroundColor="#0f3460" TextColor="White" Padding="10,6"/>
+                <Button x:Name="DownloadButton" Grid.Column="1" Text="⬇️ Download" Clicked="OnDownloadClicked" BackgroundColor="#27ae60" TextColor="White" Padding="10,6" Margin="4,0,0,0"/>
+                <Button x:Name="RefreshBooksButton" Grid.Column="2" Text="🔄 Refresh" Clicked="OnRefreshBooksClicked" BackgroundColor="#34495e" TextColor="White" Padding="10,6" Margin="4,0,0,0"/>
 
-                    <Button x:Name="DownloadButton" 
-                            Grid.Column="1"
-                            Text="⬇️ Download" 
-                            Clicked="OnDownloadClicked"
-                            BackgroundColor="#27ae60"
-                            TextColor="White"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
+                <Grid Grid.Column="3" Margin="8,0,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="PrevButton" Grid.Column="0" Text="◀" Clicked="OnPrevClicked" BackgroundColor="#34495e" TextColor="White" IsEnabled="False" Padding="10,6"/>
+                    <Label x:Name="PageInfoLabel" Grid.Column="1" Text="0 / 0" TextColor="#8899bb" FontSize="14" VerticalOptions="Center" HorizontalTextAlignment="Center" Padding="8,0" WidthRequest="60"/>
+                    <Button x:Name="NextButton" Grid.Column="2" Text="▶" Clicked="OnNextClicked" BackgroundColor="#34495e" TextColor="White" IsEnabled="False" Padding="10,6"/>
+                </Grid>
 
-                    <Button x:Name="RefreshBooksButton" 
-                            Grid.Column="2"
-                            Text="🔄 Refresh" 
-                            Clicked="OnRefreshBooksClicked"
-                            BackgroundColor="#34495e"
-                            TextColor="White"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
-
-                    <!-- Navigation group -->
-                    <Grid Grid.Column="3" Margin="8,0,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <Button x:Name="PrevButton" 
-                                Grid.Column="0"
-                                Text="◀" 
-                                Clicked="OnPrevClicked"
-                                BackgroundColor="#34495e"
-                                TextColor="White"
-                                IsEnabled="False"
-                                Padding="10,6"/>
-
-                        <Label x:Name="PageInfoLabel" 
-                               Grid.Column="1"
-                               Text="0 / 0"
-                               TextColor="#8899bb"
-                               FontSize="14"
-                               VerticalOptions="Center"
-                               HorizontalTextAlignment="Center"
-                               Padding="8,0"
-                               WidthRequest="60"/>
-
-                        <Button x:Name="NextButton" 
-                                Grid.Column="2"
-                                Text="▶" 
-                                Clicked="OnNextClicked"
-                                BackgroundColor="#34495e"
-                                TextColor="White"
-                                IsEnabled="False"
-                                Padding="10,6"/>
-                    </Grid>
-
-                    <Button x:Name="TeacherNotesButton" 
-                            Grid.Column="4"
-                            Text="👨‍🏫 Notes" 
-                            Clicked="OnTeacherNotesClicked"
-                            BackgroundColor="#3498db"
-                            TextColor="White"
-                            IsEnabled="False"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
-
-                    <Button x:Name="StudentAnswersButton" 
-                            Grid.Column="5"
-                            Text="👨‍🎓 Answers" 
-                            Clicked="OnStudentAnswersClicked"
-                            BackgroundColor="#2ecc71"
-                            TextColor="White"
-                            IsEnabled="False"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
-
-                    <Button x:Name="DecryptButton" 
-                            Grid.Column="6"
-                            Text="🔓 Decrypt" 
-                            Clicked="OnDecryptClicked"
-                            BackgroundColor="#f39c12"
-                            TextColor="White"
-                            IsEnabled="False"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
-
-                    <Button x:Name="SideBySideButton" 
-                            Grid.Column="7"
-                            Text="📄 1/2" 
-                            Clicked="OnSideBySideClicked"
-                            BackgroundColor="#2c3e50"
-                            TextColor="White"
-                            IsEnabled="False"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
-
-                    <Button x:Name="ExportPdfButton" 
-                            Grid.Column="8"
-                            Text="📄 PDF" 
-                            Clicked="OnExportPdfClicked"
-                            BackgroundColor="#9b59b6"
-                            TextColor="White"
-                            IsEnabled="False"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
-
-                    <Button x:Name="ZoomOutButton" 
-                            Grid.Column="9"
-                            Text="🔍-" 
-                            Clicked="OnZoomOutClicked"
-                            BackgroundColor="#2c3e50"
-                            TextColor="White"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
-
-                    <Label x:Name="ZoomLabel" 
-                           Grid.Column="10"
-                           Text="1.0x"
-                           TextColor="#8899bb"
-                           FontSize="14"
-                           VerticalOptions="Center"
-                           HorizontalTextAlignment="Center"
-                           Padding="4,0"
-                           WidthRequest="40"/>
-
-                    <Button x:Name="ZoomInButton" 
-                            Grid.Column="11"
-                            Text="🔍+" 
-                            Clicked="OnZoomInClicked"
-                            BackgroundColor="#2c3e50"
-                            TextColor="White"
-                            Padding="10,6"
-                            Margin="4,0,0,0"/>
+                <Button x:Name="TeacherNotesButton" Grid.Column="4" Text="👨‍🏫 Notes" Clicked="OnTeacherNotesClicked" BackgroundColor="#3498db" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
+                <Button x:Name="StudentAnswersButton" Grid.Column="5" Text="👨‍🎓 Answers" Clicked="OnStudentAnswersClicked" BackgroundColor="#2ecc71" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
+                <Button x:Name="DecryptButton" Grid.Column="6" Text="🔓 Decrypt" Clicked="OnDecryptClicked" BackgroundColor="#f39c12" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
+                <Button x:Name="SideBySideButton" Grid.Column="7" Text="📄 1/2" Clicked="OnSideBySideClicked" BackgroundColor="#2c3e50" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
+                <Button x:Name="ExportPdfButton" Grid.Column="8" Text="📄 PDF" Clicked="OnExportPdfClicked" BackgroundColor="#9b59b6" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
+                <Button x:Name="ZoomOutButton" Grid.Column="9" Text="🔍-" Clicked="OnZoomOutClicked" BackgroundColor="#2c3e50" TextColor="White" Padding="10,6" Margin="4,0,0,0"/>
+                <Label x:Name="ZoomLabel" Grid.Column="10" Text="1.0x" TextColor="#8899bb" FontSize="14" VerticalOptions="Center" HorizontalTextAlignment="Center" Padding="4,0" WidthRequest="40"/>
+                <Button x:Name="ZoomInButton" Grid.Column="11" Text="🔍+" Clicked="OnZoomInClicked" BackgroundColor="#2c3e50" TextColor="White" Padding="10,6" Margin="4,0,0,0"/>
             </Grid>
         </ScrollView>
 
@@ -185,54 +68,22 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             
-            <Label Grid.Column="0" 
-                   Text="📚 Books:" 
-                   TextColor="#8899bb" 
-                   FontSize="14"
-                   VerticalOptions="Center"
-                   Margin="0,0,8,0"/>
-            
-            <Picker x:Name="BookPicker" 
-                    Grid.Column="1"
-                    Title="Select a book..."
-                    TextColor="White"
-                    BackgroundColor="#1a1a2e"
-                    VerticalOptions="Center"
-                    HorizontalOptions="FillAndExpand"/>
-
-            <Button x:Name="ViewModeButton" 
-                    Grid.Column="2"
-                    Text="📄 Content" 
-                    Clicked="OnViewModeClicked"
-                    BackgroundColor="#2c3e50"
-                    TextColor="White"
-                    Padding="10,6"
-                    Margin="8,0,0,0"
-                    IsEnabled="False"/>
+            <Label Grid.Column="0" Text="📚 Books:" TextColor="#8899bb" FontSize="14" VerticalOptions="Center" Margin="0,0,8,0"/>
+            <Picker x:Name="BookPicker" Grid.Column="1" Title="Select a book..." TextColor="White" BackgroundColor="#1a1a2e" VerticalOptions="Center" HorizontalOptions="FillAndExpand"/>
+            <Button x:Name="ViewModeButton" Grid.Column="2" Text="📄 Content" Clicked="OnViewModeClicked" BackgroundColor="#2c3e50" TextColor="White" Padding="10,6" Margin="8,0,0,0" IsEnabled="False"/>
         </Grid>
 
-        <!-- Content Area - Side by Side -->
+        <!-- Content Area -->
         <Grid Grid.Row="2" BackgroundColor="#2d2d44">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftColumn" Width="*"/>
                 <ColumnDefinition x:Name="RightColumn" Width="0"/>
             </Grid.ColumnDefinitions>
             
-            <!-- Left: Base content -->
-            <WebView x:Name="ContentWebView" 
-                     Grid.Column="0"
-                     BackgroundColor="#2d2d44"/>
-            
-            <!-- Right: Teacher Notes / Student Answers -->
-            <WebView x:Name="TeacherWebView" 
-                     Grid.Column="1"
-                     BackgroundColor="#2d2d44"
-                     IsVisible="False"/>
-            
-            <WebView x:Name="StudentWebView" 
-                     Grid.Column="1"
-                     BackgroundColor="#2d2d44"
-                     IsVisible="False"/>
+            <WebView x:Name="ContentWebView" Grid.Column="0" BackgroundColor="#2d2d44"/>
+            <WebView x:Name="NextPageWebView" Grid.Column="1" BackgroundColor="#2d2d44" IsVisible="False"/>
+            <WebView x:Name="TeacherWebView" Grid.Column="1" BackgroundColor="Transparent" IsVisible="False"/>
+            <WebView x:Name="StudentWebView" Grid.Column="1" BackgroundColor="Transparent" IsVisible="False"/>
         </Grid>
 
         <!-- Status Bar -->
@@ -241,21 +92,8 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-
-            <Label x:Name="StatusLabel" 
-                   Grid.Column="0"
-                   Text="Ready"
-                   TextColor="#8899bb"
-                   FontSize="12"
-                   LineBreakMode="TailTruncation"/>
-
-            <Label x:Name="BookTitleLabel" 
-                   Grid.Column="1"
-                   Text="No book"
-                   TextColor="#8899bb"
-                   FontSize="12"
-                   Margin="8,0,0,0"
-                   LineBreakMode="TailTruncation"/>
+            <Label x:Name="StatusLabel" Grid.Column="0" Text="Ready" TextColor="#8899bb" FontSize="12" LineBreakMode="TailTruncation"/>
+            <Label x:Name="BookTitleLabel" Grid.Column="1" Text="No book" TextColor="#8899bb" FontSize="12" Margin="8,0,0,0" LineBreakMode="TailTruncation"/>
         </Grid>
     </Grid>
 </ContentPage>
