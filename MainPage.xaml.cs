@@ -424,7 +424,10 @@ public partial class MainPage : ContentPage
                     pointer-events: none;
                     overflow: visible;
                 }}
-                .highlight-overlay > * {{ position: absolute !important; }}
+                .highlight-overlay > *,
+                .highlight-overlay > * > * {{
+                    position: absolute !important;
+                }}
                 .{highlightClass} {{
                     background: rgba(255, 255, 0, 0.25);
                     border: 3px solid {borderColor};
