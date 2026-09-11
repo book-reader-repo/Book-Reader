@@ -150,6 +150,102 @@ public partial class MainPage : ContentPage
         LoadDownloadedBooks();
     }
 
+    private async void OnExportPdfClicked(object sender, EventArgs e)
+    {
+        Log("=== EXPORT PDF CLICKED ===");
+        
+        if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
+        {
+            await DisplayAlert("Info", "Please load a book first.", "OK");
+            return;
+        }
+    
+        try
+        {
+            // Ask user for export options
+            var includeAnswers = await DisplayAlert("Export Options",
+                "Do you want to include answers in the PDF export?",
+                "Yes (with answers)", "No (content only)");
+    
+            bool includeTeacherNotes = false;
+            bool includeStudentAnswers = false;
+    
+            if (includeAnswers)
+            {
+                includeTeacherNotes = await DisplayAlert("Answer Type",
+                    "Include Teacher Notes?",
+                    "Yes", "No");
+                
+                includeStudentAnswers = await DisplayAlert("Answer Type",
+                    "Include Student Answers?",
+                    "Yes", "No");
+    
+                if (!includeTeacherNotes && !includeStudentAnswers)
+                {
+                    includeAnswers = false;
+                }
+            }
+    
+            // Get output path
+            var bookTitle = _bookService.BookTitle;
+            var safeFileName = string.Join("_", bookTitle.Split(Path.GetInvalidFileNameChars()));
+            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var exportDir = Path.Combine(documentsPath, "BookViewer", "Exports");
+            Directory.CreateDirectory(exportDir);
+            var outputPath = Path.Combine(exportDir, $"{safeFileName}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
+    
+            ExportPdfButton.IsEnabled = false;
+            StatusLabel.Text = "Exporting to PDF...";
+    
+            var pdfService = new Services.PdfExportService(_bookService);
+            
+            pdfService.OnProgress += (s, progress) =>
+            {
+                Device.BeginInvokeOnMainThread(() =>
+                {
+                    StatusLabel.Text = $"Exporting... {progress}%";
+                });
+            };
+    
+            var tcs = new TaskCompletionSource<string>();
+    
+            pdfService.OnComplete += (s, htmlPath) =>
+            {
+                tcs.TrySetResult(htmlPath);
+            };
+    
+            pdfService.OnError += (s, error) =>
+            {
+                tcs.TrySetException(new Exception(error));
+            };
+    
+            await pdfService.ExportBookAsPdfAsync(outputPath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
+    
+            var resultPath = await tcs.Task;
+    
+            ExportPdfButton.IsEnabled = true;
+            StatusLabel.Text = "Export complete!";
+    
+            var openNow = await DisplayAlert("Export Complete",
+                $"Book exported to:\n{resultPath}\n\nWould you like to open it now?",
+                "Open", "Later");
+    
+            if (openNow)
+            {
+                await Launcher.Default.OpenAsync(new OpenFileRequest
+                {
+                    File = new ReadOnlyFile(resultPath)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            ExportPdfButton.IsEnabled = true;
+            StatusLabel.Text = $"Export failed: {ex.Message}";
+            await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
+        }
+    }
+
     private void LoadDownloadedBooks()
     {
         try
