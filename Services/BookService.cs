@@ -190,10 +190,7 @@ namespace BookViewer
                     var redContent = await GetRedAnswerContentAsync(filePath, "teacherNotes");
                     if (!string.IsNullOrEmpty(redContent))
                     {
-                        teacherHtml = $@"<div style='position:absolute;top:0;left:0;width:100%;height:100%;z-index:20;pointer-events:none;'>
-                            <style>.tbnote {{ background: rgba(255,255,0,0.25); border: 3px solid #3498db; border-radius: 4px; padding: 3px; }}</style>
-                            {redContent}
-                        </div>";
+                        teacherHtml = $@"<div class='highlight-overlay teacher-overlay'>{redContent}</div>";
                     }
                 }
         
@@ -202,10 +199,7 @@ namespace BookViewer
                     var redContent = await GetRedAnswerContentAsync(filePath, "studentAnswers");
                     if (!string.IsNullOrEmpty(redContent))
                     {
-                        studentHtml = $@"<div style='position:absolute;top:0;left:0;width:100%;height:100%;z-index:30;pointer-events:none;'>
-                            <style>.sa {{ background: rgba(255,255,0,0.25); border: 3px solid #2ecc71; border-radius: 4px; padding: 3px; }}</style>
-                            {redContent}
-                        </div>";
+                        studentHtml = $@"<div class='highlight-overlay student-overlay'>{redContent}</div>";
                     }
                 }
             }
@@ -244,14 +238,64 @@ namespace BookViewer
                 width: 100%; height: 100%;
                 z-index: 2;
             }}
-            .content-overlay > * {{ position: absolute !important; }}
+            .content-overlay > * {{
+                position: absolute !important;
+                top: 0; left: 0;
+            }}
+            .base-content {{
+                position: absolute;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                z-index: 5;
+            }}
+            .base-content > * {{
+                position: absolute !important;
+            }}
+            .highlight-overlay {{
+                position: absolute;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                z-index: 20;
+                pointer-events: none;
+                overflow: visible;
+            }}
+            /* CRITICAL: force every element inside the highlight overlay to be absolutely positioned */
+            .highlight-overlay > *,
+            .highlight-overlay > * > * {{
+                position: absolute !important;
+            }}
+            .teacher-overlay .tbnote {{
+                background: rgba(255, 255, 0, 0.25);
+                border: 3px solid #3498db;
+                border-radius: 4px;
+                padding: 3px;
+            }}
+            .student-overlay .sa {{
+                background: rgba(255, 255, 0, 0.25);
+                border: 3px solid #2ecc71;
+                border-radius: 4px;
+                padding: 3px;
+            }}
+            /* Also cover the original class names in case answers use tbnote class */
+            .highlight-overlay .tbnote {{
+                background: rgba(255, 255, 0, 0.25);
+                border: 3px solid #3498db;
+                border-radius: 4px;
+                padding: 3px;
+            }}
+            .highlight-overlay .sa {{
+                background: rgba(255, 255, 0, 0.25);
+                border: 3px solid #2ecc71;
+                border-radius: 4px;
+                padding: 3px;
+            }}
         </style>
         </head>
         <body>
         <div class='page-container'>
             <img class='background-img' src='{bgImage}' />
             <div class='content-overlay'>
-                {contentHtml}
+                <div class='base-content'>{contentHtml}</div>
                 {teacherHtml}
                 {studentHtml}
             </div>
