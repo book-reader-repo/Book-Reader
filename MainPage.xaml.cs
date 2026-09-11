@@ -20,7 +20,7 @@ public partial class MainPage : ContentPage
     private string _currentContentHtml = "";
     private string _currentTeacherHtml = "";
     private string _currentStudentHtml = "";
-    private string _currentViewMode = "content"; // content, teacher, student
+    private string _currentViewMode = "content";
     private List<BookInfo> _downloadedBooks = new();
 
     public class BookInfo
@@ -32,10 +32,9 @@ public partial class MainPage : ContentPage
         public string DisplayName { get; set; } = "";
     }
 
-    // File logger for MainPage
     private static readonly object _logLock = new object();
     private static string _logFilePath = null;
-    
+
     private string GetLogFilePath()
     {
         if (_logFilePath == null)
@@ -57,14 +56,14 @@ public partial class MainPage : ContentPage
         {
             string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
             string logFile = GetLogFilePath();
-            
+
             lock (_logLock)
             {
                 File.AppendAllText(logFile, logMessage + Environment.NewLine);
             }
-            
+
             System.Diagnostics.Debug.WriteLine(logMessage);
-            
+
             if (message.Length < 80)
             {
                 Device.BeginInvokeOnMainThread(() => StatusLabel.Text = message);
@@ -76,7 +75,6 @@ public partial class MainPage : ContentPage
         }
         catch
         {
-            // Ignore logging errors
         }
     }
 
@@ -86,33 +84,30 @@ public partial class MainPage : ContentPage
         Log("=== MAIN PAGE INITIALIZED ===");
         Log($"Log file: {GetLogFilePath()}");
 
-        // Make WebViews transparent
         ContentWebView.BackgroundColor = Colors.Transparent;
+        NextPageWebView.BackgroundColor = Colors.Transparent;
         TeacherWebView.BackgroundColor = Colors.Transparent;
         StudentWebView.BackgroundColor = Colors.Transparent;
 
-        // Setup book picker
         BookPicker.SelectedIndexChanged += OnBookPickerSelectedIndexChanged;
 
         _bookService.OnPagesLoaded += (s, pages) =>
-            Device.BeginInvokeOnMainThread(UpdateUI);
+        {
+            Device.BeginInvokeOnMainThread(() =>
+            {
+                UpdateUI();
+            });
+        };
 
         _bookService.OnPageChanged += (s, content) =>
         {
             Device.BeginInvokeOnMainThread(() =>
             {
-                Log($"=== PAGE CHANGED ===");
-                Log($"Content length: {content?.Length ?? 0}");
-                
-                // Store content
                 _currentContentHtml = content;
-                
-                // Load teacher and student views
                 LoadTeacherView();
                 LoadStudentView();
-                
-                // Update display based on current mode
                 UpdateDisplay();
+                UpdateUI();
             });
         };
 
@@ -122,21 +117,24 @@ public partial class MainPage : ContentPage
         _bookService.OnBookLoaded += (s, title) =>
             Device.BeginInvokeOnMainThread(() => BookTitleLabel.Text = title);
 
+        _bookService.OnTwoPageSpreadToggled += (s, enabled) =>
+        {
+            Device.BeginInvokeOnMainThread(() =>
+            {
+                SideBySideButton.Text = enabled ? "📄 2/2" : "📄 1/2";
+                SideBySideButton.BackgroundColor = enabled
+                    ? Color.FromArgb("#3498db")
+                    : Color.FromArgb("#2c3e50");
+                StatusLabel.Text = enabled ? "Two-page spread" : "Single page";
+                UpdateDisplay();
+            });
+        };
+
         _bookService.OnSideBySideToggled += (s, enabled) =>
         {
             Device.BeginInvokeOnMainThread(() =>
             {
-                SideBySideButton.Text = enabled ? "📄 1/1" : "📄 1/2";
-                SideBySideButton.BackgroundColor = enabled 
-                    ? Color.FromArgb("#3498db") 
-                    : Color.FromArgb("#2c3e50");
-                
-                LeftColumn.Width = enabled ? new GridLength(1, GridUnitType.Star) : new GridLength(1, GridUnitType.Star);
-                RightColumn.Width = enabled ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-                
                 UpdateDisplay();
-                
-                StatusLabel.Text = enabled ? "Side-by-side mode" : "Single page mode";
             });
         };
 
@@ -146,104 +144,7 @@ public partial class MainPage : ContentPage
                 ZoomLabel.Text = $"{zoom:F1}x";
             });
 
-        // Load downloaded books
         LoadDownloadedBooks();
-    }
-
-    private async void OnExportPdfClicked(object sender, EventArgs e)
-    {
-        Log("=== EXPORT PDF CLICKED ===");
-        
-        if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
-        {
-            await DisplayAlert("Info", "Please load a book first.", "OK");
-            return;
-        }
-    
-        try
-        {
-            // Ask user for export options
-            var includeAnswers = await DisplayAlert("Export Options",
-                "Do you want to include answers in the PDF export?",
-                "Yes (with answers)", "No (content only)");
-    
-            bool includeTeacherNotes = false;
-            bool includeStudentAnswers = false;
-    
-            if (includeAnswers)
-            {
-                includeTeacherNotes = await DisplayAlert("Answer Type",
-                    "Include Teacher Notes?",
-                    "Yes", "No");
-                
-                includeStudentAnswers = await DisplayAlert("Answer Type",
-                    "Include Student Answers?",
-                    "Yes", "No");
-    
-                if (!includeTeacherNotes && !includeStudentAnswers)
-                {
-                    includeAnswers = false;
-                }
-            }
-    
-            // Get output path
-            var bookTitle = _bookService.BookTitle;
-            var safeFileName = string.Join("_", bookTitle.Split(Path.GetInvalidFileNameChars()));
-            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var exportDir = Path.Combine(documentsPath, "BookViewer", "Exports");
-            Directory.CreateDirectory(exportDir);
-            var outputPath = Path.Combine(exportDir, $"{safeFileName}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
-    
-            ExportPdfButton.IsEnabled = false;
-            StatusLabel.Text = "Exporting to PDF...";
-    
-            var pdfService = new Services.PdfExportService(_bookService);
-            
-            pdfService.OnProgress += (s, progress) =>
-            {
-                Device.BeginInvokeOnMainThread(() =>
-                {
-                    StatusLabel.Text = $"Exporting... {progress}%";
-                });
-            };
-    
-            var tcs = new TaskCompletionSource<string>();
-    
-            pdfService.OnComplete += (s, htmlPath) =>
-            {
-                tcs.TrySetResult(htmlPath);
-            };
-    
-            pdfService.OnError += (s, error) =>
-            {
-                tcs.TrySetException(new Exception(error));
-            };
-    
-            await pdfService.ExportBookAsPdfAsync(outputPath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
-    
-            var resultPath = await tcs.Task;
-    
-            ExportPdfButton.IsEnabled = true;
-            StatusLabel.Text = "Export complete!";
-    
-            var openNow = await DisplayAlert("Export Complete",
-                $"Book exported to:\n{resultPath}\n\nWould you like to open it now?",
-                "Open", "Later");
-    
-            if (openNow)
-            {
-                await Launcher.Default.OpenAsync(new OpenFileRequest
-                {
-                    File = new ReadOnlyFile(resultPath)
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            ExportPdfButton.IsEnabled = true;
-            StatusLabel.Text = $"Export failed: {ex.Message}";
-            await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
-        }
     }
 
     private void LoadDownloadedBooks()
@@ -252,7 +153,7 @@ public partial class MainPage : ContentPage
         {
             var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
-            
+
             if (!Directory.Exists(booksDir))
             {
                 Directory.CreateDirectory(booksDir);
@@ -260,12 +161,12 @@ public partial class MainPage : ContentPage
             }
 
             _downloadedBooks.Clear();
-            
+
             foreach (var dir in Directory.GetDirectories(booksDir))
             {
                 var bookId = Path.GetFileName(dir);
                 var bookXmlPath = Path.Combine(dir, "book.xml");
-                
+
                 if (!File.Exists(bookXmlPath))
                     continue;
 
@@ -282,18 +183,12 @@ public partial class MainPage : ContentPage
                     string coverPath = "";
                     var coverFile = Directory.GetFiles(dir, $"{bookId}.png").FirstOrDefault();
                     if (string.IsNullOrEmpty(coverFile))
-                    {
                         coverFile = Directory.GetFiles(dir, "cover.png").FirstOrDefault();
-                    }
                     if (string.IsNullOrEmpty(coverFile))
-                    {
                         coverFile = Directory.GetFiles(dir, "*.png").FirstOrDefault();
-                    }
-                    
+
                     if (!string.IsNullOrEmpty(coverFile))
-                    {
                         coverPath = coverFile;
-                    }
 
                     _downloadedBooks.Add(new BookInfo
                     {
@@ -310,11 +205,8 @@ public partial class MainPage : ContentPage
                 }
             }
 
-            // Update picker
             BookPicker.ItemsSource = _downloadedBooks.Select(b => b.DisplayName).ToList();
             BookPicker.SelectedIndex = -1;
-            
-            Log($"Found {_downloadedBooks.Count} downloaded books");
         }
         catch (Exception ex)
         {
@@ -331,7 +223,7 @@ public partial class MainPage : ContentPage
 
             var bookInfo = _downloadedBooks[BookPicker.SelectedIndex];
             Log($"Selected book: {bookInfo.DisplayName}");
-            
+
             var success = await _bookService.LoadBookAsync(bookInfo.BookPath);
             if (success)
             {
@@ -340,19 +232,16 @@ public partial class MainPage : ContentPage
                 DecryptButton.IsEnabled = true;
                 SideBySideButton.IsEnabled = true;
                 ViewModeButton.IsEnabled = true;
-                
+                ExportPdfButton.IsEnabled = true;
+
                 _currentViewMode = "content";
                 _showTeacherNotes = false;
                 _showStudentAnswers = false;
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
-                
+
                 StatusLabel.Text = $"Loaded: {bookInfo.Title}";
-            }
-            else
-            {
-                StatusLabel.Text = $"Failed to load {bookInfo.Title}";
             }
         }
         catch (Exception ex)
@@ -364,7 +253,6 @@ public partial class MainPage : ContentPage
 
     private async void OnRefreshBooksClicked(object sender, EventArgs e)
     {
-        Log("=== REFRESH BOOKS CLICKED ===");
         LoadDownloadedBooks();
         StatusLabel.Text = $"Found {_downloadedBooks.Count} books";
         await Task.CompletedTask;
@@ -379,20 +267,13 @@ public partial class MainPage : ContentPage
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
                 var directory = Path.GetDirectoryName(filePath) ?? "";
                 var fileName = Path.GetFileName(filePath) ?? "";
-                
-                // Get the base content (text from _ori.html)
+
                 string baseContent = await GetBaseContentAsync(filePath);
-                
-                // Get the red answer content (teacher notes)
                 string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "teacherNotes");
-                
-                // Get background image and font CSS
                 string bgImage = _bookService.GetStepBackgroundImage(filePath);
                 string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
-                
-                // Build the HTML for teacher view
+
                 _currentTeacherHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "teacherNotes");
-                Log($"Teacher view loaded, length: {_currentTeacherHtml.Length}");
             }
         }
         catch (Exception ex)
@@ -410,20 +291,13 @@ public partial class MainPage : ContentPage
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
                 var directory = Path.GetDirectoryName(filePath) ?? "";
                 var fileName = Path.GetFileName(filePath) ?? "";
-                
-                // Get the base content (text from _ori.html)
+
                 string baseContent = await GetBaseContentAsync(filePath);
-                
-                // Get the red answer content (student answers)
                 string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "studentAnswers");
-                
-                // Get background image and font CSS
                 string bgImage = _bookService.GetStepBackgroundImage(filePath);
                 string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
-                
-                // Build the HTML for student view
+
                 _currentStudentHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "studentAnswers");
-                Log($"Student view loaded, length: {_currentStudentHtml.Length}");
             }
         }
         catch (Exception ex)
@@ -439,30 +313,28 @@ public partial class MainPage : ContentPage
             var directory = Path.GetDirectoryName(filePath) ?? "";
             var fileName = Path.GetFileName(filePath) ?? "";
             var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-            
+
             string oriHtmlPath = Path.Combine(directory, nameWithoutExt + "_ori.html");
             if (File.Exists(oriHtmlPath))
             {
                 string oriContent = await File.ReadAllTextAsync(oriHtmlPath);
                 var bodyMatch = Regex.Match(oriContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
                 if (bodyMatch.Success)
-                {
                     return bodyMatch.Groups[1].Value;
-                }
                 return oriContent;
             }
-            
+
             string paraXmlPath = Path.Combine(directory, nameWithoutExt + "_para.xml");
             if (File.Exists(paraXmlPath))
             {
                 string paraContent = await File.ReadAllTextAsync(paraXmlPath);
-                var doc = new System.Xml.XmlDocument();
+                var doc = new XmlDocument();
                 doc.LoadXml(paraContent);
                 var parasNode = doc.SelectSingleNode("//paras");
                 if (parasNode != null)
                 {
                     var result = "";
-                    foreach (System.Xml.XmlNode child in parasNode.ChildNodes)
+                    foreach (XmlNode child in parasNode.ChildNodes)
                     {
                         if (child.Name == "para")
                         {
@@ -475,7 +347,7 @@ public partial class MainPage : ContentPage
                 }
                 return "";
             }
-            
+
             return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
         }
         catch (Exception ex)
@@ -488,22 +360,17 @@ public partial class MainPage : ContentPage
     private string BuildFullViewHtml(string bgImage, string baseContent, string redContent, string fileName, string fontCss, string viewType)
     {
         double zoom = _bookService.CurrentZoom;
-        
+
         if (string.IsNullOrEmpty(bgImage))
-        {
             bgImage = GetPlaceholderImage();
-        }
 
         string labelText = viewType == "teacherNotes" ? "👨‍🏫 Teacher Notes" : "👨‍🎓 Student Answers";
         string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
         string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
         string labelColor = viewType == "teacherNotes" ? "52, 152, 219" : "46, 204, 113";
 
-        // If no red content, show just the base content
         if (string.IsNullOrEmpty(redContent))
-        {
             return BuildBaseContentHtml(bgImage, baseContent, fileName, fontCss);
-        }
 
         return $@"
         <!DOCTYPE html>
@@ -514,36 +381,19 @@ public partial class MainPage : ContentPage
             <title>{fileName}</title>
             <style>
                 {fontCss}
-                * {{
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }}
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
                 html, body {{
                     width: 100%;
                     height: 100%;
                     overflow: auto;
                     background: #1a1a2e;
-                    -webkit-font-smoothing: antialiased;
-                    -moz-osx-font-smoothing: grayscale;
                 }}
                 body {{
                     display: flex;
                     justify-content: center;
-                    align-items: center;
+                    align-items: flex-start;
                     min-height: 100vh;
                     padding: 10px;
-                    margin: 0;
-                    overflow: auto;
-                }}
-                .page-wrapper {{
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    width: 100%;
-                    height: 100%;
-                    min-height: 100vh;
-                    overflow: auto;
                 }}
                 .page-container {{
                     position: relative;
@@ -555,111 +405,57 @@ public partial class MainPage : ContentPage
                     overflow: hidden;
                     border-radius: 4px;
                     transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
-                    transform-origin: center center;
+                    transform-origin: top center;
                 }}
                 .background-img {{
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
                     object-fit: contain;
                     pointer-events: none;
                     z-index: 1;
-                    image-rendering: auto;
-                    image-rendering: -webkit-optimize-contrast;
                 }}
                 .content-overlay {{
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
                     z-index: 2;
-                    overflow: hidden;
-                    pointer-events: auto;
                 }}
-                .content-overlay > * {{
-                    position: absolute !important;
-                }}
-                
+                .content-overlay > * {{ position: absolute !important; }}
                 .base-content {{
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
                     z-index: 5;
                     pointer-events: none;
                 }}
-                .base-content > * {{
-                    position: absolute !important;
-                }}
-                
+                .base-content > * {{ position: absolute !important; }}
                 .highlight-overlay {{
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
                     z-index: 10;
                     pointer-events: none;
                     overflow: visible;
                 }}
-                .highlight-overlay > * {{
-                    position: absolute !important;
-                }}
-                
+                .highlight-overlay > * {{ position: absolute !important; }}
                 .{highlightClass} {{
                     background: rgba(255, 255, 0, 0.25);
                     border: 3px solid {borderColor};
                     border-radius: 4px;
                     padding: 3px;
                 }}
-                
-                .view-label {{
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: rgba({labelColor}, 0.9);
-                    color: white;
-                    padding: 8px 16px;
-                    border-radius: 20px;
-                    font-size: 14px;
-                    font-family: Arial, sans-serif;
-                    z-index: 100;
-                    pointer-events: none;
-                }}
-                
-                ::-webkit-scrollbar {{
-                    width: 6px;
-                    height: 6px;
-                }}
-                ::-webkit-scrollbar-track {{
-                    background: #1a1a2e;
-                }}
-                ::-webkit-scrollbar-thumb {{
-                    background: #2d2d44;
-                    border-radius: 3px;
-                }}
-                ::-webkit-scrollbar-thumb:hover {{
-                    background: #3d3d54;
-                }}
+                ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+                ::-webkit-scrollbar-track {{ background: #1a1a2e; }}
+                ::-webkit-scrollbar-thumb {{ background: #2d2d44; border-radius: 3px; }}
             </style>
         </head>
         <body>
-            <div class='view-label'>{labelText}</div>
-            <div class='page-wrapper'>
-                <div class='page-container'>
-                    <img class='background-img' src='{bgImage}' alt='Background' />
-                    <div class='content-overlay'>
-                        <div class='base-content'>
-                            {baseContent}
-                        </div>
-                        <div class='highlight-overlay'>
-                            {redContent}
-                        </div>
-                    </div>
+            <div class='page-container'>
+                <img class='background-img' src='{bgImage}' alt='' />
+                <div class='content-overlay'>
+                    <div class='base-content'>{baseContent}</div>
+                    <div class='highlight-overlay'>{redContent}</div>
                 </div>
             </div>
         </body>
@@ -669,11 +465,9 @@ public partial class MainPage : ContentPage
     private string BuildBaseContentHtml(string bgImage, string baseContent, string fileName, string fontCss)
     {
         double zoom = _bookService.CurrentZoom;
-        
+
         if (string.IsNullOrEmpty(bgImage))
-        {
             bgImage = GetPlaceholderImage();
-        }
 
         return $@"
         <!DOCTYPE html>
@@ -684,36 +478,19 @@ public partial class MainPage : ContentPage
             <title>{fileName}</title>
             <style>
                 {fontCss}
-                * {{
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }}
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
                 html, body {{
                     width: 100%;
                     height: 100%;
                     overflow: auto;
                     background: #1a1a2e;
-                    -webkit-font-smoothing: antialiased;
-                    -moz-osx-font-smoothing: grayscale;
                 }}
                 body {{
                     display: flex;
                     justify-content: center;
-                    align-items: center;
+                    align-items: flex-start;
                     min-height: 100vh;
                     padding: 10px;
-                    margin: 0;
-                    overflow: auto;
-                }}
-                .page-wrapper {{
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    width: 100%;
-                    height: 100%;
-                    min-height: 100vh;
-                    overflow: auto;
                 }}
                 .page-container {{
                     position: relative;
@@ -725,72 +502,41 @@ public partial class MainPage : ContentPage
                     overflow: hidden;
                     border-radius: 4px;
                     transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
-                    transform-origin: center center;
+                    transform-origin: top center;
                 }}
                 .background-img {{
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
                     object-fit: contain;
                     pointer-events: none;
                     z-index: 1;
-                    image-rendering: auto;
-                    image-rendering: -webkit-optimize-contrast;
                 }}
                 .content-overlay {{
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
                     z-index: 2;
-                    overflow: hidden;
-                    pointer-events: auto;
                 }}
-                .content-overlay > * {{
-                    position: absolute !important;
-                }}
-                
+                .content-overlay > * {{ position: absolute !important; }}
                 .base-content {{
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
                     z-index: 5;
                     pointer-events: none;
                 }}
-                .base-content > * {{
-                    position: absolute !important;
-                }}
-                
-                ::-webkit-scrollbar {{
-                    width: 6px;
-                    height: 6px;
-                }}
-                ::-webkit-scrollbar-track {{
-                    background: #1a1a2e;
-                }}
-                ::-webkit-scrollbar-thumb {{
-                    background: #2d2d44;
-                    border-radius: 3px;
-                }}
-                ::-webkit-scrollbar-thumb:hover {{
-                    background: #3d3d54;
-                }}
+                .base-content > * {{ position: absolute !important; }}
+                ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+                ::-webkit-scrollbar-track {{ background: #1a1a2e; }}
+                ::-webkit-scrollbar-thumb {{ background: #2d2d44; border-radius: 3px; }}
             </style>
         </head>
         <body>
-            <div class='page-wrapper'>
-                <div class='page-container'>
-                    <img class='background-img' src='{bgImage}' alt='Background' />
-                    <div class='content-overlay'>
-                        <div class='base-content'>
-                            {baseContent}
-                        </div>
-                    </div>
+            <div class='page-container'>
+                <img class='background-img' src='{bgImage}' alt='' />
+                <div class='content-overlay'>
+                    <div class='base-content'>{baseContent}</div>
                 </div>
             </div>
         </body>
@@ -804,40 +550,33 @@ public partial class MainPage : ContentPage
 
     private void UpdateDisplay()
     {
-        bool isSideBySide = _bookService.SideBySideMode;
-        
-        if (isSideBySide)
+        bool isTwoPage = _bookService.TwoPageSpread;
+
+        if (isTwoPage)
         {
-            // Side-by-side mode: Left shows content, right shows teacher or student
+            RightColumn.Width = new GridLength(1, GridUnitType.Star);
+
             ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
-            
-            if (_showTeacherNotes && !string.IsNullOrEmpty(_currentTeacherHtml))
+            ContentWebView.IsVisible = true;
+
+            if (!string.IsNullOrEmpty(_bookService.NextPageHtml))
             {
-                TeacherWebView.IsVisible = true;
-                StudentWebView.IsVisible = false;
-                TeacherWebView.Source = new HtmlWebViewSource { Html = _currentTeacherHtml };
-                Log("Side-by-side: Showing teacher notes on right");
-            }
-            else if (_showStudentAnswers && !string.IsNullOrEmpty(_currentStudentHtml))
-            {
-                TeacherWebView.IsVisible = false;
-                StudentWebView.IsVisible = true;
-                StudentWebView.Source = new HtmlWebViewSource { Html = _currentStudentHtml };
-                Log("Side-by-side: Showing student answers on right");
+                NextPageWebView.Source = new HtmlWebViewSource { Html = _bookService.NextPageHtml };
             }
             else
             {
-                TeacherWebView.IsVisible = false;
-                StudentWebView.IsVisible = false;
-                Log("Side-by-side: No answers to show");
+                NextPageWebView.Source = new HtmlWebViewSource { Html = "<html><body style='background:#2d2d44;'></body></html>" };
             }
+            NextPageWebView.IsVisible = true;
+
+            TeacherWebView.IsVisible = false;
+            StudentWebView.IsVisible = false;
         }
         else
         {
-            // Single page mode: Show the selected view
-            TeacherWebView.IsVisible = false;
-            StudentWebView.IsVisible = false;
-            
+            RightColumn.Width = new GridLength(0);
+            NextPageWebView.IsVisible = false;
+
             string html = _currentViewMode switch
             {
                 "content" => _currentContentHtml,
@@ -845,18 +584,34 @@ public partial class MainPage : ContentPage
                 "student" => _currentStudentHtml,
                 _ => _currentContentHtml
             };
-            
+
             if (!string.IsNullOrEmpty(html))
             {
                 ContentWebView.Source = new HtmlWebViewSource { Html = html };
-                Log($"Single page: Showing {_currentViewMode} view");
             }
             else
             {
                 ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
-                Log("Single page: Falling back to content view");
             }
-            
+
+            if (_showTeacherNotes && !string.IsNullOrEmpty(_currentTeacherHtml))
+            {
+                TeacherWebView.IsVisible = true;
+                StudentWebView.IsVisible = false;
+                TeacherWebView.Source = new HtmlWebViewSource { Html = _currentTeacherHtml };
+            }
+            else if (_showStudentAnswers && !string.IsNullOrEmpty(_currentStudentHtml))
+            {
+                TeacherWebView.IsVisible = false;
+                StudentWebView.IsVisible = true;
+                StudentWebView.Source = new HtmlWebViewSource { Html = _currentStudentHtml };
+            }
+            else
+            {
+                TeacherWebView.IsVisible = false;
+                StudentWebView.IsVisible = false;
+            }
+
             UpdateViewModeButton();
         }
     }
@@ -871,7 +626,7 @@ public partial class MainPage : ContentPage
             _ => "📄 Content"
         };
         ViewModeButton.Text = text;
-        
+
         ViewModeButton.BackgroundColor = _currentViewMode switch
         {
             "content" => Color.FromArgb("#2c3e50"),
@@ -879,51 +634,26 @@ public partial class MainPage : ContentPage
             "student" => Color.FromArgb("#2ecc71"),
             _ => Color.FromArgb("#2c3e50")
         };
-        
-        TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher" 
-            ? Color.FromArgb("#e74c3c") 
+
+        TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
+            ? Color.FromArgb("#e74c3c")
             : Color.FromArgb("#3498db");
-        StudentAnswersButton.BackgroundColor = _currentViewMode == "student" 
-            ? Color.FromArgb("#e74c3c") 
+        StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
+            ? Color.FromArgb("#e74c3c")
             : Color.FromArgb("#2ecc71");
     }
 
     private void OnViewModeClicked(object sender, EventArgs e)
     {
-        Log("=== VIEW MODE CLICKED ===");
-        
-        if (_bookService.SideBySideMode)
+        _currentViewMode = _currentViewMode switch
         {
-            // In side-by-side mode, toggle between teacher and student on the right
-            if (_showTeacherNotes && !_showStudentAnswers)
-            {
-                _showTeacherNotes = false;
-                _showStudentAnswers = true;
-            }
-            else if (_showStudentAnswers && !_showTeacherNotes)
-            {
-                _showTeacherNotes = false;
-                _showStudentAnswers = false;
-            }
-            else
-            {
-                _showTeacherNotes = true;
-                _showStudentAnswers = false;
-            }
-        }
-        else
-        {
-            // In single page mode, cycle through views
-            _currentViewMode = _currentViewMode switch
-            {
-                "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
-                "teacher" when (!string.IsNullOrEmpty(_currentStudentHtml)) => "student",
-                "student" => "content",
-                "content" => "content",
-                _ => "content"
-            };
-        }
-        
+            "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
+            "teacher" when (!string.IsNullOrEmpty(_currentStudentHtml)) => "student",
+            "student" => "content",
+            "content" => "content",
+            _ => "content"
+        };
+
         UpdateDisplay();
         UpdateViewModeButton();
         UpdateTeacherButton();
@@ -932,89 +662,44 @@ public partial class MainPage : ContentPage
 
     private void OnTeacherNotesClicked(object sender, EventArgs e)
     {
-        Log("=== TEACHER NOTES CLICKED ===");
-        
-        if (_bookService.SideBySideMode)
+        if (!string.IsNullOrEmpty(_currentTeacherHtml))
         {
-            // In side-by-side mode, toggle teacher notes on the right
-            _showTeacherNotes = !_showTeacherNotes;
-            if (_showTeacherNotes)
-            {
-                _showStudentAnswers = false;
-            }
+            _currentViewMode = _currentViewMode == "teacher" ? "content" : "teacher";
+            UpdateDisplay();
+            UpdateViewModeButton();
+            UpdateTeacherButton();
+            UpdateStudentButton();
         }
         else
         {
-            // In single page mode, switch to teacher view
-            if (!string.IsNullOrEmpty(_currentTeacherHtml))
-            {
-                _currentViewMode = _currentViewMode == "teacher" ? "content" : "teacher";
-            }
-            else
-            {
-                StatusLabel.Text = "No teacher notes available for this page";
-                return;
-            }
+            StatusLabel.Text = "No teacher notes available for this page";
         }
-        
-        UpdateDisplay();
-        UpdateViewModeButton();
-        UpdateTeacherButton();
-        UpdateStudentButton();
     }
 
     private void OnStudentAnswersClicked(object sender, EventArgs e)
     {
-        Log("=== STUDENT ANSWERS CLICKED ===");
-        
-        if (_bookService.SideBySideMode)
+        if (!string.IsNullOrEmpty(_currentStudentHtml))
         {
-            // In side-by-side mode, toggle student answers on the right
-            _showStudentAnswers = !_showStudentAnswers;
-            if (_showStudentAnswers)
-            {
-                _showTeacherNotes = false;
-            }
+            _currentViewMode = _currentViewMode == "student" ? "content" : "student";
+            UpdateDisplay();
+            UpdateViewModeButton();
+            UpdateTeacherButton();
+            UpdateStudentButton();
         }
         else
         {
-            // In single page mode, switch to student view
-            if (!string.IsNullOrEmpty(_currentStudentHtml))
-            {
-                _currentViewMode = _currentViewMode == "student" ? "content" : "student";
-            }
-            else
-            {
-                StatusLabel.Text = "No student answers available for this page";
-                return;
-            }
+            StatusLabel.Text = "No student answers available for this page";
         }
-        
-        UpdateDisplay();
-        UpdateViewModeButton();
-        UpdateTeacherButton();
-        UpdateStudentButton();
     }
 
     private void UpdateTeacherButton()
     {
         if (TeacherNotesButton != null)
         {
-            if (_bookService.SideBySideMode)
-            {
-                TeacherNotesButton.Text = _showTeacherNotes ? "👨‍🏫 Hide Notes" : "👨‍🏫 Teacher Notes";
-                TeacherNotesButton.BackgroundColor = _showTeacherNotes 
-                    ? Color.FromArgb("#e74c3c") 
-                    : Color.FromArgb("#3498db");
-            }
-            else
-            {
-                TeacherNotesButton.Text = _currentViewMode == "teacher" ? "👨‍🏫 Hide Notes" : "👨‍🏫 Teacher Notes";
-                TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher" 
-                    ? Color.FromArgb("#e74c3c") 
-                    : Color.FromArgb("#3498db");
-            }
-            Log($"Teacher button updated: {TeacherNotesButton.Text}");
+            TeacherNotesButton.Text = _currentViewMode == "teacher" ? "👨‍🏫 Hide" : "👨‍🏫 Notes";
+            TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
+                ? Color.FromArgb("#e74c3c")
+                : Color.FromArgb("#3498db");
         }
     }
 
@@ -1022,27 +707,15 @@ public partial class MainPage : ContentPage
     {
         if (StudentAnswersButton != null)
         {
-            if (_bookService.SideBySideMode)
-            {
-                StudentAnswersButton.Text = _showStudentAnswers ? "👨‍🎓 Hide Answers" : "👨‍🎓 Student Answers";
-                StudentAnswersButton.BackgroundColor = _showStudentAnswers 
-                    ? Color.FromArgb("#e74c3c") 
-                    : Color.FromArgb("#2ecc71");
-            }
-            else
-            {
-                StudentAnswersButton.Text = _currentViewMode == "student" ? "👨‍🎓 Hide Answers" : "👨‍🎓 Student Answers";
-                StudentAnswersButton.BackgroundColor = _currentViewMode == "student" 
-                    ? Color.FromArgb("#e74c3c") 
-                    : Color.FromArgb("#2ecc71");
-            }
-            Log($"Student button updated: {StudentAnswersButton.Text}");
+            StudentAnswersButton.Text = _currentViewMode == "student" ? "👨‍🎓 Hide" : "👨‍🎓 Answers";
+            StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
+                ? Color.FromArgb("#e74c3c")
+                : Color.FromArgb("#2ecc71");
         }
     }
 
     private async void OnOpenBookClicked(object sender, EventArgs e)
     {
-        Log("=== OPEN BOOK CLICKED ===");
         try
         {
             var result = await FilePicker.PickAsync(new PickOptions
@@ -1054,12 +727,10 @@ public partial class MainPage : ContentPage
             {
                 var filePath = result.FullPath;
                 var fileName = Path.GetFileName(filePath);
-                Log($"Selected file: {fileName}");
 
                 if (fileName.Equals("book.xml", StringComparison.OrdinalIgnoreCase))
                 {
                     var folderPath = Path.GetDirectoryName(filePath);
-                    Log($"Book folder: {folderPath}");
                     var success = await _bookService.LoadBookAsync(folderPath);
                     if (success)
                     {
@@ -1068,20 +739,19 @@ public partial class MainPage : ContentPage
                         DecryptButton.IsEnabled = true;
                         SideBySideButton.IsEnabled = true;
                         ViewModeButton.IsEnabled = true;
-                        
+                        ExportPdfButton.IsEnabled = true;
+
                         _currentViewMode = "content";
                         _showTeacherNotes = false;
                         _showStudentAnswers = false;
                         UpdateViewModeButton();
                         UpdateTeacherButton();
                         UpdateStudentButton();
-                        
-                        Log("Book loaded successfully");
+
                         await DisplayAlert("Success", $"Book loaded!\nLog file: {GetLogFilePath()}", "OK");
                     }
                     else
                     {
-                        Log("Failed to load book");
                         await DisplayAlert("Error", "Failed to load book", "OK");
                     }
                 }
@@ -1113,7 +783,7 @@ public partial class MainPage : ContentPage
 
             var downloadService = new Services.DownloadService();
             var tcs = new TaskCompletionSource<bool>();
-            
+
             downloadService.OnProgress += (s, progress) =>
             {
                 Device.BeginInvokeOnMainThread(() =>
@@ -1121,30 +791,28 @@ public partial class MainPage : ContentPage
                     StatusLabel.Text = $"Downloading... {progress}%";
                 });
             };
-            
+
             downloadService.OnComplete += (s, bookPath) =>
             {
                 Device.BeginInvokeOnMainThread(async () =>
                 {
                     StatusLabel.Text = $"Book {bookNumber} downloaded successfully!";
                     await DisplayAlert("Success", $"Book {bookNumber} has been downloaded to:\n{bookPath}", "OK");
-                    
-                    // Refresh the book list
+
                     LoadDownloadedBooks();
-                    
-                    // Find and select the downloaded book
+
                     var bookInfo = _downloadedBooks.FirstOrDefault(b => b.BookId == $"book_{bookNumber}");
                     if (bookInfo != null)
                     {
                         var index = _downloadedBooks.IndexOf(bookInfo);
                         BookPicker.SelectedIndex = index;
                     }
-                    
+
                     DownloadButton.IsEnabled = true;
                     tcs.SetResult(true);
                 });
             };
-            
+
             downloadService.OnError += (s, error) =>
             {
                 Device.BeginInvokeOnMainThread(async () =>
@@ -1155,7 +823,7 @@ public partial class MainPage : ContentPage
                     tcs.SetResult(false);
                 });
             };
-            
+
             await downloadService.DownloadBookAsync(bookNumber);
             await tcs.Task;
         }
@@ -1164,6 +832,88 @@ public partial class MainPage : ContentPage
             StatusLabel.Text = $"Error: {ex.Message}";
             await DisplayAlert("Error", $"Download failed: {ex.Message}", "OK");
             DownloadButton.IsEnabled = true;
+        }
+    }
+
+    private async void OnExportPdfClicked(object sender, EventArgs e)
+    {
+        if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
+        {
+            await DisplayAlert("Info", "Please load a book first.", "OK");
+            return;
+        }
+
+        try
+        {
+            var includeAnswers = await DisplayAlert("Export Options",
+                "Do you want to include answers in the exported document?",
+                "Yes", "No");
+
+            bool includeTeacherNotes = false;
+            bool includeStudentAnswers = false;
+
+            if (includeAnswers)
+            {
+                includeTeacherNotes = await DisplayAlert("Answer Type",
+                    "Include Teacher Notes?",
+                    "Yes", "No");
+
+                includeStudentAnswers = await DisplayAlert("Answer Type",
+                    "Include Student Answers?",
+                    "Yes", "No");
+
+                if (!includeTeacherNotes && !includeStudentAnswers)
+                    includeAnswers = false;
+            }
+
+            var bookTitle = _bookService.BookTitle;
+            var safeFileName = string.Join("_", bookTitle.Split(Path.GetInvalidFileNameChars()));
+            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var exportDir = Path.Combine(documentsPath, "BookViewer", "Exports");
+            Directory.CreateDirectory(exportDir);
+            var outputPath = Path.Combine(exportDir, $"{safeFileName}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
+
+            ExportPdfButton.IsEnabled = false;
+            StatusLabel.Text = "Exporting...";
+
+            var pdfService = new Services.PdfExportService(_bookService);
+
+            pdfService.OnProgress += (s, progress) =>
+            {
+                Device.BeginInvokeOnMainThread(() =>
+                {
+                    StatusLabel.Text = $"Exporting... {progress}%";
+                });
+            };
+
+            var tcs = new TaskCompletionSource<string>();
+            pdfService.OnComplete += (s, htmlPath) => tcs.TrySetResult(htmlPath);
+            pdfService.OnError += (s, error) => tcs.TrySetException(new Exception(error));
+
+            await pdfService.ExportBookAsPdfAsync(outputPath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
+
+            var resultPath = await tcs.Task;
+
+            ExportPdfButton.IsEnabled = true;
+            StatusLabel.Text = "Export complete!";
+
+            var openNow = await DisplayAlert("Export Complete",
+                $"Document exported to:\n{resultPath}\n\nOpen it now?",
+                "Open", "Later");
+
+            if (openNow)
+            {
+                await Launcher.Default.OpenAsync(new OpenFileRequest
+                {
+                    File = new ReadOnlyFile(resultPath)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            ExportPdfButton.IsEnabled = true;
+            StatusLabel.Text = $"Export failed: {ex.Message}";
+            await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
         }
     }
 
@@ -1188,17 +938,39 @@ public partial class MainPage : ContentPage
 
     private void OnPrevClicked(object sender, EventArgs e)
     {
-        _bookService.NavigatePrevious();
+        if (_bookService.TwoPageSpread)
+        {
+            var newIndex = _bookService.CurrentPageIndex - 2;
+            if (newIndex >= 0)
+                _ = _bookService.LoadPageAsync(newIndex);
+            else if (_bookService.CurrentPageIndex > 0)
+                _ = _bookService.LoadPageAsync(0);
+        }
+        else
+        {
+            _bookService.NavigatePrevious();
+        }
     }
 
     private void OnNextClicked(object sender, EventArgs e)
     {
-        _bookService.NavigateNext();
+        if (_bookService.TwoPageSpread)
+        {
+            var newIndex = _bookService.CurrentPageIndex + 2;
+            if (newIndex < _bookService.PageFiles.Count)
+                _ = _bookService.LoadPageAsync(newIndex);
+            else if (_bookService.CurrentPageIndex < _bookService.PageFiles.Count - 1)
+                _ = _bookService.LoadPageAsync(_bookService.PageFiles.Count - 1);
+        }
+        else
+        {
+            _bookService.NavigateNext();
+        }
     }
 
     private void OnSideBySideClicked(object sender, EventArgs e)
     {
-        _bookService.ToggleSideBySide();
+        _bookService.ToggleTwoPageSpread();
     }
 
     private void OnZoomInClicked(object sender, EventArgs e)
