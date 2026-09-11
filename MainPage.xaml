@@ -132,6 +132,17 @@
                     IsEnabled="False"
                     Padding="10,6"
                     Margin="4,0,0,0"/>
+            
+            <!-- Add this button to the toolbar, before the Zoom controls -->
+            <Button x:Name="ExportPdfButton" 
+                    Grid.Column="8"
+                    Text="📄 PDF" 
+                    Clicked="OnExportPdfClicked"
+                    BackgroundColor="#9b59b6"
+                    TextColor="White"
+                    IsEnabled="False"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
 
             <!-- Zoom Controls -->
             <Button x:Name="ZoomOutButton" 
