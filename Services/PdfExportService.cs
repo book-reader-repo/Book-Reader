@@ -1,9 +1,7 @@
+using PdfSharpCore.Drawing;
+using PdfSharpCore.Pdf;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace BookViewer.Services
@@ -15,6 +13,8 @@ namespace BookViewer.Services
         public event EventHandler<int> OnProgress;
         public event EventHandler<string> OnComplete;
         public event EventHandler<string> OnError;
+
+        public Func<string, Task<byte[]>> RenderPageToImageAsync { get; set; }
 
         public PdfExportService(BookService bookService)
         {
@@ -32,147 +32,65 @@ namespace BookViewer.Services
                     return;
                 }
 
-                // Create HTML document with all pages
-                var htmlBuilder = new StringBuilder();
-                htmlBuilder.AppendLine("<!DOCTYPE html>");
-                htmlBuilder.AppendLine("<html><head>");
-                htmlBuilder.AppendLine("<meta charset='UTF-8'>");
-                htmlBuilder.AppendLine("<title>Book Export</title>");
-                htmlBuilder.AppendLine("<style>");
-                htmlBuilder.AppendLine("@page { size: 1024px 1344px; margin: 0; }");
-                htmlBuilder.AppendLine("body { margin: 0; padding: 0; background: #fff; }");
-                htmlBuilder.AppendLine(".page { width: 1024px; height: 1344px; page-break-after: always; position: relative; overflow: hidden; }");
-                htmlBuilder.AppendLine(".page:last-child { page-break-after: auto; }");
-                htmlBuilder.AppendLine("</style>");
-                htmlBuilder.AppendLine("</head><body>");
+                if (RenderPageToImageAsync == null)
+                {
+                    OnError?.Invoke(this, "Render callback not set");
+                    return;
+                }
+
+                double pageWidthPt = 1024 * 0.75;
+                double pageHeightPt = 1344 * 0.75;
+
+                var document = new PdfDocument();
+                document.Info.Title = _bookService.BookTitle;
+                document.Info.Creator = "BookViewer";
 
                 for (int i = 0; i < totalPages; i++)
                 {
                     OnProgress?.Invoke(this, (int)((i / (double)totalPages) * 100));
 
                     var filePath = _bookService.PageFiles[i];
-                    
-                    // Get the base content
-                    var baseContent = await GetBaseContentAsync(filePath);
-                    var bgImage = _bookService.GetStepBackgroundImage(filePath);
-                    var directory = Path.GetDirectoryName(filePath) ?? "";
-                    var fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
 
-                    // Get answers if needed
-                    string teacherContent = "";
-                    string studentContent = "";
-                    
-                    if (includeAnswers)
+                    string html = await _bookService.BuildPageHtmlForRenderAsync(
+                        filePath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
+
+                    byte[] imageBytes = null;
+                    try
                     {
-                        if (includeTeacherNotes)
-                        {
-                            teacherContent = await _bookService.GetRedAnswerContentAsync(filePath, "teacherNotes");
-                        }
-                        if (includeStudentAnswers)
-                        {
-                            studentContent = await _bookService.GetRedAnswerContentAsync(filePath, "studentAnswers");
-                        }
+                        imageBytes = await RenderPageToImageAsync(html);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Render error page {i + 1}: {ex.Message}");
                     }
 
-                    htmlBuilder.AppendLine($"<div class='page'>");
-                    htmlBuilder.AppendLine($"<style>{fontCss}</style>");
-                    
-                    if (!string.IsNullOrEmpty(bgImage))
+                    if (imageBytes == null || imageBytes.Length == 0)
                     {
-                        htmlBuilder.AppendLine($"<img src='{bgImage}' style='position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;' />");
-                    }
-                    
-                    htmlBuilder.AppendLine($"<div style='position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;'>");
-                    htmlBuilder.AppendLine(baseContent);
-                    htmlBuilder.AppendLine("</div>");
-
-                    if (!string.IsNullOrEmpty(teacherContent))
-                    {
-                        htmlBuilder.AppendLine($"<div style='position:absolute;top:0;left:0;width:100%;height:100%;z-index:10;'>");
-                        htmlBuilder.AppendLine(teacherContent);
-                        htmlBuilder.AppendLine("</div>");
+                        System.Diagnostics.Debug.WriteLine($"Skipping page {i + 1} (no image)");
+                        continue;
                     }
 
-                    if (!string.IsNullOrEmpty(studentContent))
+                    var pdfPage = document.AddPage();
+                    pdfPage.Width = XUnit.FromPoint(pageWidthPt);
+                    pdfPage.Height = XUnit.FromPoint(pageHeightPt);
+
+                    using (var gfx = XGraphics.FromPdfPage(pdfPage))
+                    using (var ms = new MemoryStream(imageBytes))
                     {
-                        htmlBuilder.AppendLine($"<div style='position:absolute;top:0;left:0;width:100%;height:100%;z-index:15;'>");
-                        htmlBuilder.AppendLine(studentContent);
-                        htmlBuilder.AppendLine("</div>");
+                        var img = XImage.FromStream(() => ms);
+                        gfx.DrawImage(img, 0, 0, pageWidthPt, pageHeightPt);
+                        img.Dispose();
                     }
 
-                    htmlBuilder.AppendLine("</div>");
+                    OnProgress?.Invoke(this, (int)(((i + 1) / (double)totalPages) * 100));
                 }
 
-                htmlBuilder.AppendLine("</body></html>");
-
-                OnProgress?.Invoke(this, 90);
-
-                // Save HTML file (user can print to PDF from browser)
-                var htmlPath = outputPath.Replace(".pdf", ".html");
-                await File.WriteAllTextAsync(htmlPath, htmlBuilder.ToString());
-
-                OnProgress?.Invoke(this, 100);
-                OnComplete?.Invoke(this, htmlPath);
+                document.Save(outputPath);
+                OnComplete?.Invoke(this, outputPath);
             }
             catch (Exception ex)
             {
                 OnError?.Invoke(this, ex.Message);
-            }
-        }
-
-        private async Task<string> GetBaseContentAsync(string filePath)
-        {
-            try
-            {
-                var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileName(filePath) ?? "";
-                var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-
-                // Try _ori.html first
-                string oriHtmlPath = Path.Combine(directory, nameWithoutExt + "_ori.html");
-                if (File.Exists(oriHtmlPath))
-                {
-                    var content = await File.ReadAllTextAsync(oriHtmlPath);
-                    var bodyMatch = Regex.Match(content, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
-                    return bodyMatch.Success ? bodyMatch.Groups[1].Value : content;
-                }
-
-                // Try _base.html
-                string baseHtmlPath = Path.Combine(directory, nameWithoutExt + "_base.html");
-                if (File.Exists(baseHtmlPath))
-                {
-                    return await File.ReadAllTextAsync(baseHtmlPath);
-                }
-
-                // Try _para.xml
-                string paraXmlPath = Path.Combine(directory, nameWithoutExt + "_para.xml");
-                if (File.Exists(paraXmlPath))
-                {
-                    var paraContent = await File.ReadAllTextAsync(paraXmlPath);
-                    var doc = new System.Xml.XmlDocument();
-                    doc.LoadXml(paraContent);
-                    var parasNode = doc.SelectSingleNode("//paras");
-                    if (parasNode != null)
-                    {
-                        var result = "";
-                        foreach (System.Xml.XmlNode child in parasNode.ChildNodes)
-                        {
-                            if (child.Name == "para")
-                            {
-                                var text = child.InnerText;
-                                var style = child.Attributes?["style"]?.Value ?? "";
-                                result += $"<div class='para' style='{style}'>{text}</div>";
-                            }
-                        }
-                        return result;
-                    }
-                }
-
-                return "<div style='padding:20px;'>Content not available</div>";
-            }
-            catch
-            {
-                return "<div style='padding:20px;'>Content not available</div>";
             }
         }
     }
