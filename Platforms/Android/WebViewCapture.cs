@@ -32,11 +32,11 @@ namespace BookViewer.Platforms.Android
                     settings.BlockNetworkLoads = false;
                     settings.SetRenderPriority(WebSettings.RenderPriority.High);
 
-                    webView.SetBackgroundColor(Color.White);
+                    webView.SetBackgroundColor(global::Android.Graphics.Color.White);
                     webView.Layout(0, 0, width, height);
                     webView.Measure(
-                        View.MeasureSpec.MakeMeasureSpec(width, MeasureSpecMode.Exactly),
-                        View.MeasureSpec.MakeMeasureSpec(height, MeasureSpecMode.Exactly));
+                        global::Android.Views.View.MeasureSpec.MakeMeasureSpec(width, MeasureSpecMode.Exactly),
+                        global::Android.Views.View.MeasureSpec.MakeMeasureSpec(height, MeasureSpecMode.Exactly));
                     webView.Layout(0, 0, width, height);
 
                     var finishedTcs = new TaskCompletionSource<bool>();
@@ -45,21 +45,19 @@ namespace BookViewer.Platforms.Android
 
                     webView.LoadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null);
 
-                    // Wait for load with timeout
                     var completed = await Task.WhenAny(finishedTcs.Task, Task.Delay(15000));
                     if (completed == finishedTcs.Task)
                     {
                         await finishedTcs.Task;
                     }
 
-                    // Extra delay for fonts/images/SVG to render
                     await Task.Delay(800);
 
                     var bitmap = Bitmap.CreateBitmap(width, height, Bitmap.Config.Argb8888);
                     try
                     {
                         var canvas = new Canvas(bitmap);
-                        canvas.DrawColor(Color.White);
+                        canvas.DrawColor(global::Android.Graphics.Color.White);
                         webView.Draw(canvas);
 
                         using var ms = new MemoryStream();
