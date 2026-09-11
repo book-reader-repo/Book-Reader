@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
@@ -93,10 +92,7 @@ public partial class MainPage : ContentPage
 
         _bookService.OnPagesLoaded += (s, pages) =>
         {
-            Device.BeginInvokeOnMainThread(() =>
-            {
-                UpdateUI();
-            });
+            Device.BeginInvokeOnMainThread(() => UpdateUI());
         };
 
         _bookService.OnPageChanged += (s, content) =>
@@ -132,17 +128,11 @@ public partial class MainPage : ContentPage
 
         _bookService.OnSideBySideToggled += (s, enabled) =>
         {
-            Device.BeginInvokeOnMainThread(() =>
-            {
-                UpdateDisplay();
-            });
+            Device.BeginInvokeOnMainThread(() => UpdateDisplay());
         };
 
         _bookService.OnZoomChanged += (s, zoom) =>
-            Device.BeginInvokeOnMainThread(() =>
-            {
-                ZoomLabel.Text = $"{zoom:F1}x";
-            });
+            Device.BeginInvokeOnMainThread(() => ZoomLabel.Text = $"{zoom:F1}x");
 
         LoadDownloadedBooks();
     }
@@ -176,9 +166,7 @@ public partial class MainPage : ContentPage
                     string content = File.ReadAllText(bookXmlPath);
                     var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
                     if (titleMatch.Success)
-                    {
                         title = titleMatch.Groups[1].Value;
-                    }
 
                     string coverPath = "";
                     var coverFile = Directory.GetFiles(dir, $"{bookId}.png").FirstOrDefault();
@@ -364,10 +352,8 @@ public partial class MainPage : ContentPage
         if (string.IsNullOrEmpty(bgImage))
             bgImage = GetPlaceholderImage();
 
-        string labelText = viewType == "teacherNotes" ? "👨‍🏫 Teacher Notes" : "👨‍🎓 Student Answers";
         string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
         string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
-        string labelColor = viewType == "teacherNotes" ? "52, 152, 219" : "46, 204, 113";
 
         if (string.IsNullOrEmpty(redContent))
             return BuildBaseContentHtml(bgImage, baseContent, fileName, fontCss);
@@ -846,7 +832,7 @@ public partial class MainPage : ContentPage
         try
         {
             var includeAnswers = await DisplayAlert("Export Options",
-                "Do you want to include answers in the exported document?",
+                "Include answers in the PDF?",
                 "Yes", "No");
 
             bool includeTeacherNotes = false;
@@ -855,12 +841,9 @@ public partial class MainPage : ContentPage
             if (includeAnswers)
             {
                 includeTeacherNotes = await DisplayAlert("Answer Type",
-                    "Include Teacher Notes?",
-                    "Yes", "No");
-
+                    "Include Teacher Notes?", "Yes", "No");
                 includeStudentAnswers = await DisplayAlert("Answer Type",
-                    "Include Student Answers?",
-                    "Yes", "No");
+                    "Include Student Answers?", "Yes", "No");
 
                 if (!includeTeacherNotes && !includeStudentAnswers)
                     includeAnswers = false;
@@ -874,20 +857,27 @@ public partial class MainPage : ContentPage
             var outputPath = Path.Combine(exportDir, $"{safeFileName}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
 
             ExportPdfButton.IsEnabled = false;
-            StatusLabel.Text = "Exporting...";
+            StatusLabel.Text = "Exporting PDF...";
 
             var pdfService = new Services.PdfExportService(_bookService);
 
-            pdfService.OnProgress += (s, progress) =>
+            pdfService.RenderPageToImageAsync = async (html) =>
             {
-                Device.BeginInvokeOnMainThread(() =>
-                {
-                    StatusLabel.Text = $"Exporting... {progress}%";
-                });
+#if IOS
+                return await BookViewer.Platforms.iOS.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+#elif ANDROID
+                return await BookViewer.Platforms.Android.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+#else
+                await Task.CompletedTask;
+                return null;
+#endif
             };
 
+            pdfService.OnProgress += (s, progress) =>
+                Device.BeginInvokeOnMainThread(() => StatusLabel.Text = $"Exporting PDF... {progress}%");
+
             var tcs = new TaskCompletionSource<string>();
-            pdfService.OnComplete += (s, htmlPath) => tcs.TrySetResult(htmlPath);
+            pdfService.OnComplete += (s, path) => tcs.TrySetResult(path);
             pdfService.OnError += (s, error) => tcs.TrySetException(new Exception(error));
 
             await pdfService.ExportBookAsPdfAsync(outputPath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
@@ -895,10 +885,10 @@ public partial class MainPage : ContentPage
             var resultPath = await tcs.Task;
 
             ExportPdfButton.IsEnabled = true;
-            StatusLabel.Text = "Export complete!";
+            StatusLabel.Text = "PDF export complete!";
 
             var openNow = await DisplayAlert("Export Complete",
-                $"Document exported to:\n{resultPath}\n\nOpen it now?",
+                $"PDF saved to:\n{resultPath}\n\nOpen it now?",
                 "Open", "Later");
 
             if (openNow)
