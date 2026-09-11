@@ -22,17 +22,18 @@ namespace BookViewer
         private readonly Dictionary<string, string> _imageCache = new();
         private readonly Dictionary<string, string> _fontCache = new();
         private bool _sideBySideMode = false;
+        private bool _twoPageSpread = false;
+        private string _nextPageHtml = "";
         private double _currentZoom = 1.0;
         private double _baseScale = 1.0;
         private string _tempFolder;
-        
-        // Track answer visibility state
+
         private bool _showTeacherNotes = false;
         private bool _showStudentAnswers = false;
 
         private static readonly object _logLock = new object();
         private static string _logFilePath = null;
-        
+
         private string GetLogFilePath()
         {
             if (_logFilePath == null)
@@ -54,14 +55,14 @@ namespace BookViewer
             {
                 string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
                 string logFile = GetLogFilePath();
-                
+
                 lock (_logLock)
                 {
                     File.AppendAllText(logFile, logMessage + Environment.NewLine);
                 }
-                
+
                 System.Diagnostics.Debug.WriteLine(logMessage);
-                
+
                 if (message.Length < 80)
                 {
                     OnStatusChanged?.Invoke(this, message);
@@ -73,7 +74,6 @@ namespace BookViewer
             }
             catch
             {
-                // Ignore logging errors
             }
         }
 
@@ -83,6 +83,7 @@ namespace BookViewer
         public event EventHandler<string> OnBookLoaded;
         public event EventHandler<bool> OnToggleAnswersRequested;
         public event EventHandler<bool> OnSideBySideToggled;
+        public event EventHandler<bool> OnTwoPageSpreadToggled;
         public event EventHandler<double> OnZoomChanged;
 
         public List<string> PageFiles => _pageFiles;
@@ -91,8 +92,10 @@ namespace BookViewer
         public string BookTitle => _bookTitle;
         public string CurrentPageHtml => _currentPageHtml;
         public bool SideBySideMode => _sideBySideMode;
+        public bool TwoPageSpread => _twoPageSpread;
+        public string NextPageHtml => _nextPageHtml;
         public double CurrentZoom => _currentZoom;
-        
+
         public bool ShowTeacherNotes => _showTeacherNotes;
         public bool ShowStudentAnswers => _showStudentAnswers;
 
@@ -130,7 +133,7 @@ namespace BookViewer
         {
             _currentZoom = Math.Max(0.5, Math.Min(3.0, zoom));
             OnZoomChanged?.Invoke(this, _currentZoom);
-            
+
             if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
             {
                 _ = LoadPageAsync(_currentPageIndex);
@@ -156,7 +159,19 @@ namespace BookViewer
         {
             _sideBySideMode = !_sideBySideMode;
             OnSideBySideToggled?.Invoke(this, _sideBySideMode);
-            
+
+            if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
+            {
+                _ = LoadPageAsync(_currentPageIndex);
+            }
+        }
+
+        public void ToggleTwoPageSpread()
+        {
+            _twoPageSpread = !_twoPageSpread;
+            _sideBySideMode = _twoPageSpread;
+            OnTwoPageSpreadToggled?.Invoke(this, _twoPageSpread);
+
             if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
             {
                 _ = LoadPageAsync(_currentPageIndex);
@@ -168,21 +183,12 @@ namespace BookViewer
             try
             {
                 Log($"=== LOADING BOOK from: {folderPath} ===");
-                
-                // Log all files in the directory
-                var allFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.AllDirectories);
-                Log($"Total files in book directory: {allFiles.Length}");
-                foreach (var file in allFiles.Take(20))
-                {
-                    Log($"  File: {file}");
-                }
-                
                 _currentBookPath = folderPath;
-                
+
                 _tempFolder = Path.Combine(FileSystem.CacheDirectory, "BookViewer", $"temp_{Guid.NewGuid().ToString().Substring(0, 8)}");
                 Directory.CreateDirectory(_tempFolder);
                 Log($"Temp folder: {_tempFolder}");
-                
+
                 var bookXmlPath = Path.Combine(folderPath, "book.xml");
 
                 if (!File.Exists(bookXmlPath))
@@ -217,22 +223,18 @@ namespace BookViewer
                 if (_decryptionService.IsEncrypted(content))
                 {
                     Log("book.xml is encrypted, decrypting...");
-                    
+
                     if (string.IsNullOrEmpty(_currentBookUid))
                     {
                         Log("ERROR: Could not find book UID for decryption");
                         OnStatusChanged?.Invoke(this, "Could not decrypt book.xml - UID not found");
                         return false;
                     }
-                    
+
                     content = _decryptionService.DecryptBookFile(content, _currentBookUid);
                     Log($"book.xml decrypted, size: {content.Length} bytes");
                     await File.WriteAllTextAsync(bookXmlPath, content);
                     bookXmlDecrypted = true;
-                }
-                else
-                {
-                    Log("book.xml is already decrypted");
                 }
 
                 _bookTitle = "Unknown Book";
@@ -243,14 +245,12 @@ namespace BookViewer
 
                 OnBookLoaded?.Invoke(this, _bookTitle);
 
-                // Only decrypt files if book.xml was encrypted or if files need decryption
                 if (bookXmlDecrypted)
                 {
                     await DecryptBookFilesAsync(folderPath);
                 }
                 else
                 {
-                    // Check if any HTML files are still encrypted
                     bool needsDecryption = false;
                     var sampleHtmlFiles = Directory.GetFiles(folderPath, "steps_*.html", SearchOption.AllDirectories).Take(3).ToList();
                     foreach (var sampleFile in sampleHtmlFiles)
@@ -258,7 +258,7 @@ namespace BookViewer
                         try
                         {
                             var sampleContent = await File.ReadAllTextAsync(sampleFile);
-                            if (!sampleContent.Contains("<") || !sampleContent.Contains(">") || 
+                            if (!sampleContent.Contains("<") || !sampleContent.Contains(">") ||
                                 !(sampleContent.Contains("</") || sampleContent.Contains("/>")))
                             {
                                 needsDecryption = true;
@@ -311,12 +311,6 @@ namespace BookViewer
 
                 Log($"Sorted {_pageFiles.Count} page files");
 
-                foreach (var file in _pageFiles.Take(5))
-                {
-                    Log($"  Page: {Path.GetFileName(file)}");
-                }
-                if (_pageFiles.Count > 5) Log($"  ... and {_pageFiles.Count - 5} more");
-
                 OnPagesLoaded?.Invoke(this, _pageFiles);
 
                 if (_pageFiles.Count > 0)
@@ -325,10 +319,14 @@ namespace BookViewer
                     Log($"Loading first page: {Path.GetFileName(_pageFiles[0])}");
                     await LoadPageAsync(0);
                 }
+                else
+                {
+                    OnStatusChanged?.Invoke(this, "No pages found in this book");
+                    return false;
+                }
 
                 OnStatusChanged?.Invoke(this, $"Loaded: {_bookTitle} ({_pageFiles.Count} pages)");
                 Log($"=== BOOK LOADED SUCCESSFULLY ===");
-                Log($"Log file: {GetLogFilePath()}");
                 return true;
             }
             catch (Exception ex)
@@ -340,9 +338,6 @@ namespace BookViewer
             }
         }
 
-        // ============================================================
-        // Get Red Answer Content ONLY - For separate views
-        // ============================================================
         public async Task<string> GetRedAnswerContentAsync(string filePath, string answerType)
         {
             try
@@ -352,7 +347,7 @@ namespace BookViewer
                 Log($"=== GET RED ANSWER CONTENT for: {fileName} type: {answerType} ===");
 
                 string redAnswerPath = Path.Combine(directory, fileName + "_redAnswer.html");
-                
+
                 if (!File.Exists(redAnswerPath))
                 {
                     string[] altPatterns;
@@ -409,49 +404,32 @@ namespace BookViewer
                 if (bodyMatch.Success)
                 {
                     content = bodyMatch.Groups[1].Value;
-                    Log($"Extracted content from body tag, size: {content.Length}");
                 }
 
                 string extractedContent = "";
-                
+
                 if (answerType == "teacherNotes")
                 {
-                    var matches = Regex.Matches(content, 
-                        @"<[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
+                    var matches = Regex.Matches(content,
+                        @"<[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</[^>]*>",
                         RegexOptions.IgnoreCase);
-                    
+
                     if (matches.Count > 0)
                     {
-                        Log($"Found {matches.Count} teacher note elements");
                         foreach (Match match in matches)
                         {
                             extractedContent += match.Value + "\n";
-                        }
-                    }
-                    else
-                    {
-                        var matches2 = Regex.Matches(content, 
-                            @"<[^>]*>[^<]*teacher[^<]*</[^>]*>", 
-                            RegexOptions.IgnoreCase);
-                        if (matches2.Count > 0)
-                        {
-                            Log($"Found {matches2.Count} teacher content elements (fallback)");
-                            foreach (Match match in matches2)
-                            {
-                                extractedContent += match.Value + "\n";
-                            }
                         }
                     }
                 }
                 else
                 {
-                    var matches = Regex.Matches(content, 
-                        @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
+                    var matches = Regex.Matches(content,
+                        @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>",
                         RegexOptions.IgnoreCase);
-                    
+
                     if (matches.Count > 0)
                     {
-                        Log($"Found {matches.Count} student answer elements");
                         foreach (Match match in matches)
                         {
                             extractedContent += match.Value + "\n";
@@ -459,22 +437,7 @@ namespace BookViewer
                     }
                     else
                     {
-                        var matches2 = Regex.Matches(content, 
-                            @"<[^>]*>[^<]*(?:student|answer)[^<]*</[^>]*>", 
-                            RegexOptions.IgnoreCase);
-                        if (matches2.Count > 0)
-                        {
-                            Log($"Found {matches2.Count} student answer elements (fallback)");
-                            foreach (Match match in matches2)
-                            {
-                                extractedContent += match.Value + "\n";
-                            }
-                        }
-                        else
-                        {
-                            extractedContent = content;
-                            Log("Using all content as student answers (fallback)");
-                        }
+                        extractedContent = content;
                     }
                 }
 
@@ -494,83 +457,36 @@ namespace BookViewer
             }
         }
 
-        // ============================================================
-        // Get Step Background Image - Public for MainPage
-        // ============================================================
         public string GetStepBackgroundImage(string filePath)
         {
             var directory = Path.GetDirectoryName(filePath) ?? "";
             var stepNumber = ParseStepIndex(Path.GetFileName(filePath));
-            
-            Log($"Looking for background for step {stepNumber} in {directory}");
-            
+
             var imagesPath = Path.Combine(directory, "images");
             if (Directory.Exists(imagesPath))
             {
                 var imagePath = Path.Combine(imagesPath, $"steps_{stepNumber}.jpg");
-                if (File.Exists(imagePath))
-                {
-                    Log($"Found: {imagePath}");
-                    return ConvertImageToBase64HighQuality(imagePath);
-                }
-                
+                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+
                 imagePath = Path.Combine(imagesPath, $"steps_{stepNumber}.png");
-                if (File.Exists(imagePath))
-                {
-                    Log($"Found: {imagePath}");
-                    return ConvertImageToBase64HighQuality(imagePath);
-                }
-                
+                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+
                 imagePath = Path.Combine(imagesPath, $"step_{stepNumber}.jpg");
-                if (File.Exists(imagePath))
-                {
-                    Log($"Found: {imagePath}");
-                    return ConvertImageToBase64HighQuality(imagePath);
-                }
-                
+                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+
                 imagePath = Path.Combine(imagesPath, $"step_{stepNumber}.png");
-                if (File.Exists(imagePath))
-                {
-                    Log($"Found: {imagePath}");
-                    return ConvertImageToBase64HighQuality(imagePath);
-                }
-                
+                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+
                 var anyJpg = Directory.GetFiles(imagesPath, "*.jpg").FirstOrDefault();
-                if (anyJpg != null)
-                {
-                    Log($"Using fallback JPG: {anyJpg}");
-                    return ConvertImageToBase64HighQuality(anyJpg);
-                }
-                
+                if (anyJpg != null) return ConvertImageToBase64HighQuality(anyJpg);
+
                 var anyPng = Directory.GetFiles(imagesPath, "*.png").FirstOrDefault();
-                if (anyPng != null)
-                {
-                    Log($"Using fallback PNG: {anyPng}");
-                    return ConvertImageToBase64HighQuality(anyPng);
-                }
+                if (anyPng != null) return ConvertImageToBase64HighQuality(anyPng);
             }
-            
-            var sameDirJpg = Directory.GetFiles(directory, $"*{stepNumber}*.jpg").FirstOrDefault();
-            if (sameDirJpg != null)
-            {
-                Log($"Found in same dir: {sameDirJpg}");
-                return ConvertImageToBase64HighQuality(sameDirJpg);
-            }
-            
-            var sameDirPng = Directory.GetFiles(directory, $"*{stepNumber}*.png").FirstOrDefault();
-            if (sameDirPng != null)
-            {
-                Log($"Found in same dir: {sameDirPng}");
-                return ConvertImageToBase64HighQuality(sameDirPng);
-            }
-            
-            Log($"No image found for step {stepNumber}");
+
             return GetPlaceholderImage();
         }
 
-        // ============================================================
-        // Get Font CSS with embedded fonts - Public for MainPage
-        // ============================================================
         public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
         {
             try
@@ -596,8 +512,7 @@ namespace BookViewer
                 if (!string.IsNullOrEmpty(fontCssPath) && File.Exists(fontCssPath))
                 {
                     fontCss = await File.ReadAllTextAsync(fontCssPath);
-                    System.Diagnostics.Debug.WriteLine($"Found font CSS: {fontCssPath}");
-                    
+
                     string fontsFolder = Path.Combine(_currentBookPath, "FONTS");
                     if (!Directory.Exists(fontsFolder))
                         fontsFolder = Path.Combine(_currentBookPath, "fonts");
@@ -606,23 +521,14 @@ namespace BookViewer
                     foreach (Match match in fontFaceMatches)
                     {
                         var fontFaceContent = match.Groups[1].Value;
-                        
-                        var familyMatch = Regex.Match(fontFaceContent, @"font-family\s*:\s*['""]?([^;'""]+)['""]?");
-                        string fontFamily = familyMatch.Success ? familyMatch.Groups[1].Value.Trim() : "";
-                        
                         var urlMatches = Regex.Matches(fontFaceContent, @"url\(['""]?([^)'""]+)['""]?\)");
                         foreach (Match urlMatch in urlMatches)
                         {
                             var fontPath = urlMatch.Groups[1].Value;
-                            
-                            fontPath = fontPath.Replace("../FONTS/", "");
-                            fontPath = fontPath.Replace("../fonts/", "");
-                            fontPath = fontPath.Replace("./", "");
-                            
-                            System.Diagnostics.Debug.WriteLine($"Looking for font: {fontPath}");
-                            
+                            fontPath = fontPath.Replace("../FONTS/", "").Replace("../fonts/", "").Replace("./", "");
+
                             string fullFontPath = null;
-                            
+
                             if (Directory.Exists(fontsFolder))
                             {
                                 var exactPath = Path.Combine(fontsFolder, fontPath);
@@ -635,25 +541,7 @@ namespace BookViewer
                                     var fileNameOnly = Path.GetFileName(fontPath);
                                     var fileNamePath = Path.Combine(fontsFolder, fileNameOnly);
                                     if (File.Exists(fileNamePath))
-                                    {
                                         fullFontPath = fileNamePath;
-                                    }
-                                    else
-                                    {
-                                        var allFonts = Directory.GetFiles(fontsFolder, "*.*");
-                                        foreach (var f in allFonts)
-                                        {
-                                            var name = Path.GetFileName(f);
-                                            var nameWithoutExt = Path.GetFileNameWithoutExtension(name);
-                                            var searchName = Path.GetFileNameWithoutExtension(fontPath);
-                                            
-                                            if (nameWithoutExt.Equals(searchName, StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                fullFontPath = f;
-                                                break;
-                                            }
-                                        }
-                                    }
                                 }
                             }
 
@@ -682,18 +570,12 @@ namespace BookViewer
                                     ".svg" => "image/svg+xml",
                                     _ => "font/ttf"
                                 };
-                                
+
                                 var dataUri = $"data:{mimeType};base64,{fontBase64}";
-                                
+
                                 fontCss = fontCss.Replace($"url('{urlMatch.Groups[1].Value}')", $"url('{dataUri}')");
                                 fontCss = fontCss.Replace($"url(\"{urlMatch.Groups[1].Value}\")", $"url('{dataUri}')");
                                 fontCss = fontCss.Replace($"url({urlMatch.Groups[1].Value})", $"url('{dataUri}')");
-                                
-                                System.Diagnostics.Debug.WriteLine($"Embedded font: {Path.GetFileName(fullFontPath)} ({fontBytes.Length} bytes)");
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine($"Font file not found: {fontPath} in {fontsFolder}");
                             }
                         }
                     }
@@ -702,9 +584,7 @@ namespace BookViewer
                     return fontCss;
                 }
 
-                System.Diagnostics.Debug.WriteLine("No font CSS found, scanning for font files...");
                 fontCss = await GenerateFontCssFromFiles();
-                
                 _fontCache[directory] = fontCss;
                 return fontCss;
             }
@@ -720,11 +600,10 @@ namespace BookViewer
             try
             {
                 string fontCss = "";
-                
                 var fontsFolder = Path.Combine(_currentBookPath, "FONTS");
                 if (!Directory.Exists(fontsFolder))
                     fontsFolder = Path.Combine(_currentBookPath, "fonts");
-                
+
                 if (!Directory.Exists(fontsFolder))
                     return "";
 
@@ -733,11 +612,8 @@ namespace BookViewer
 
                 foreach (var ext in fontExtensions)
                 {
-                    var files = Directory.GetFiles(fontsFolder, "*" + ext);
-                    fontFiles.AddRange(files);
+                    fontFiles.AddRange(Directory.GetFiles(fontsFolder, "*" + ext));
                 }
-
-                System.Diagnostics.Debug.WriteLine($"Found {fontFiles.Count} font files in {fontsFolder}");
 
                 foreach (var fontFile in fontFiles)
                 {
@@ -772,20 +648,14 @@ namespace BookViewer
                                 font-weight: normal;
                                 font-style: normal;
                             }}";
-
-                        System.Diagnostics.Debug.WriteLine($"Generated font: {fontName} ({fontBytes.Length} bytes)");
                     }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Error processing font {fontFile}: {ex.Message}");
-                    }
+                    catch { }
                 }
 
                 return fontCss;
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Error generating font CSS: {ex.Message}");
                 return "";
             }
         }
@@ -814,40 +684,28 @@ namespace BookViewer
                     ".svg" => "image/svg+xml",
                     _ => "image/jpeg"
                 };
-                
+
                 var base64 = Convert.ToBase64String(bytes);
                 var result = $"data:{mimeType};base64,{base64}";
                 _imageCache[imagePath] = result;
-                
-                System.Diagnostics.Debug.WriteLine($"Loaded image: {Path.GetFileName(imagePath)} ({bytes.Length} bytes)");
+
                 return result;
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading image {imagePath}: {ex.Message}");
                 return GetPlaceholderImage();
             }
         }
 
-        // ============================================================
-        // Decrypt all files in the book directory - Only if needed
-        // ============================================================
         private async Task DecryptBookFilesAsync(string folderPath)
         {
             try
             {
-                Log($"=== DECRYPTING BOOK FILES in: {folderPath} ===");
-                Log($"Book UID: {_currentBookUid}");
-                
                 var htmlFiles = Directory.GetFiles(folderPath, "*.html", SearchOption.AllDirectories).ToList();
                 var xmlFiles = Directory.GetFiles(folderPath, "*.xml", SearchOption.AllDirectories).ToList();
                 var htmFiles = Directory.GetFiles(folderPath, "*.htm", SearchOption.AllDirectories).ToList();
 
-                Log($"Found {htmlFiles.Count} HTML files, {xmlFiles.Count} XML files, {htmFiles.Count} HTM files");
-
                 int bookKey = _decryptionService.CalculateKey(_currentBookUid);
-                Log($"Book Key: {bookKey}");
-
                 int decryptedCount = 0;
                 int alreadyDecryptedCount = 0;
 
@@ -855,37 +713,6 @@ namespace BookViewer
                 allXmlAndHtmFiles.AddRange(xmlFiles);
                 allXmlAndHtmFiles.AddRange(htmFiles);
 
-                // Check if HTML files are already decrypted
-                bool needsDecryption = false;
-                if (htmlFiles.Count > 0)
-                {
-                    var sampleFile = htmlFiles[0];
-                    var sampleContent = await File.ReadAllTextAsync(sampleFile);
-                    if (sampleContent.Contains("<") && sampleContent.Contains(">") && 
-                        (sampleContent.Contains("</") || sampleContent.Contains("/>")))
-                    {
-                        if (sampleContent.Contains("class=") || sampleContent.Contains("<div"))
-                        {
-                            needsDecryption = false;
-                            Log($"✅ Sample file {Path.GetFileName(sampleFile)} appears to be already decrypted");
-                        }
-                        else
-                        {
-                            needsDecryption = true;
-                        }
-                    }
-                    else
-                    {
-                        needsDecryption = true;
-                    }
-                }
-                else
-                {
-                    needsDecryption = true;
-                }
-
-                // Decrypt XML and HTM files
-                Log("📄 Processing XML and HTM files...");
                 foreach (var file in allXmlAndHtmFiles)
                 {
                     try
@@ -895,16 +722,13 @@ namespace BookViewer
 
                         if (!_decryptionService.IsEncrypted(content))
                         {
-                            Log($"  ⏭️  {fileName}: Already decrypted, skipping");
                             alreadyDecryptedCount++;
                             continue;
                         }
 
-                        Log($"  🔓 Decrypting: {fileName}");
                         string decryptedContent = _decryptionService.DecryptXmlOrHtm(content, fileName);
                         await File.WriteAllTextAsync(file, decryptedContent);
                         decryptedCount++;
-                        Log($"    ✅ Decrypted: {fileName}");
                     }
                     catch (Exception ex)
                     {
@@ -912,67 +736,35 @@ namespace BookViewer
                     }
                 }
 
-                Log($"XML/HTM files: {decryptedCount} decrypted, {alreadyDecryptedCount} already decrypted");
-                Log("");
+                int htmlDecryptedCount = 0;
+                int htmlSkippedCount = 0;
 
-                // Decrypt HTML files if needed
-                if (needsDecryption && htmlFiles.Count > 0)
+                foreach (var file in htmlFiles)
                 {
-                    Log("📄 Processing HTML files...");
-                    Log($"Using Book Key: {bookKey}");
-
-                    int htmlDecryptedCount = 0;
-                    int htmlSkippedCount = 0;
-
-                    foreach (var file in htmlFiles)
+                    try
                     {
-                        try
+                        var fileName = Path.GetFileName(file);
+                        var content = await File.ReadAllTextAsync(file);
+
+                        bool isDecrypted = content.Contains("<") && content.Contains(">") &&
+                                           (content.Contains("</") || content.Contains("/>")) &&
+                                           (content.Contains("class=") || content.Contains("<div") || content.Contains("id="));
+
+                        if (isDecrypted)
                         {
-                            var fileName = Path.GetFileName(file);
-                            var content = await File.ReadAllTextAsync(file);
-
-                            bool isDecrypted = content.Contains("<") && content.Contains(">") && 
-                                               (content.Contains("</") || content.Contains("/>")) &&
-                                               (content.Contains("class=") || content.Contains("<div") || content.Contains("id="));
-
-                            if (isDecrypted)
-                            {
-                                Log($"  ⏭️  {fileName}: Already decrypted, skipping");
-                                htmlSkippedCount++;
-                                continue;
-                            }
-
-                            Log($"  🔓 Decrypting HTML: {fileName} (using Book Key: {bookKey})");
-                            string decryptedContent = _decryptionService.DecryptWithKey(content, bookKey);
-                            await File.WriteAllTextAsync(file, decryptedContent);
-                            htmlDecryptedCount++;
-                            
-                            if (decryptedContent.Contains("<") && decryptedContent.Contains(">"))
-                            {
-                                Log($"    ✅ Decrypted: {fileName} (valid HTML)");
-                            }
-                            else
-                            {
-                                Log($"    ⚠️ Decrypted: {fileName} (may still be encrypted)");
-                            }
+                            htmlSkippedCount++;
+                            continue;
                         }
-                        catch (Exception ex)
-                        {
-                            Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
-                        }
+
+                        string decryptedContent = _decryptionService.DecryptWithKey(content, bookKey);
+                        await File.WriteAllTextAsync(file, decryptedContent);
+                        htmlDecryptedCount++;
                     }
-
-                    Log($"HTML files: {htmlDecryptedCount} decrypted, {htmlSkippedCount} already decrypted");
-                    Log("");
+                    catch (Exception ex)
+                    {
+                        Log($"  ❌ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
+                    }
                 }
-                else
-                {
-                    Log("⏭️ Skipping HTML decryption - files appear to be already decrypted");
-                }
-
-                Log("=== Summary ===");
-                Log($"✅ XML/HTM decrypted: {decryptedCount} files");
-                Log($"⏭️  XML/HTM skipped (already decrypted): {alreadyDecryptedCount} files");
             }
             catch (Exception ex)
             {
@@ -1006,11 +798,7 @@ namespace BookViewer
                 var m = Regex.Match(fileName ?? "", @"^steps?_(\d+)\.html$", RegexOptions.IgnoreCase);
                 if (m.Success && int.TryParse(m.Groups[1].Value, out int idx))
                     return idx;
-                
-                m = Regex.Match(fileName ?? "", @"^step_(\d+)\.html$", RegexOptions.IgnoreCase);
-                if (m.Success && int.TryParse(m.Groups[1].Value, out int idx2))
-                    return idx2;
-                    
+
                 m = Regex.Match(fileName ?? "", @"(\d+)");
                 if (m.Success && int.TryParse(m.Groups[1].Value, out int idx3))
                     return idx3;
@@ -1019,70 +807,75 @@ namespace BookViewer
             return -1;
         }
 
-        // ============================================================
-        // Process HTML Content
-        // ============================================================
+        public async Task LoadPageAsync(int index)
+        {
+            if (index < 0 || index >= _pageFiles.Count) return;
+
+            try
+            {
+                Log($"=== LOADING PAGE {index} ===");
+                _currentPageIndex = index;
+                var filePath = _pageFiles[index];
+                var fileName = Path.GetFileName(filePath);
+                Log($"File: {fileName}");
+
+                var content = await File.ReadAllTextAsync(filePath);
+                Log($"Raw content size: {content.Length} bytes");
+
+                var processedHtml = await ProcessHtmlContent(content, filePath);
+                _currentPageHtml = processedHtml;
+                Log($"Processed HTML size: {processedHtml.Length} bytes");
+
+                if (_twoPageSpread && index + 1 < _pageFiles.Count)
+                {
+                    var nextFilePath = _pageFiles[index + 1];
+                    var nextContent = await File.ReadAllTextAsync(nextFilePath);
+                    var nextProcessedHtml = await ProcessHtmlContent(nextContent, nextFilePath);
+                    _nextPageHtml = nextProcessedHtml;
+                }
+                else
+                {
+                    _nextPageHtml = "";
+                }
+
+                OnPageChanged?.Invoke(this, processedHtml);
+                OnStatusChanged?.Invoke(this, $"Viewing: {fileName} ({index + 1}/{_pageFiles.Count})");
+                OnPagesLoaded?.Invoke(this, _pageFiles);
+
+                Log($"=== PAGE {index} LOADED SUCCESSFULLY ===");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR loading page: {ex.Message}");
+                OnStatusChanged?.Invoke(this, $"Error loading page: {ex.Message}");
+            }
+        }
+
         private async Task<string> ProcessHtmlContent(string htmlContent, string filePath)
         {
             try
             {
                 string directory = Path.GetDirectoryName(filePath) ?? "";
                 string fileName = Path.GetFileName(filePath) ?? "";
-                Log($"=== PROCESSING HTML: {fileName} ===");
 
                 if (IsPureStepsFile(fileName) && fileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
                 {
-                    Log($"Processing pure steps file: {fileName}");
-
                     string bgImage = GetStepBackgroundImage(filePath);
-                    Log($"Background image: {(string.IsNullOrEmpty(bgImage) ? "NOT FOUND" : "FOUND")}");
-
                     string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
-                    
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
-                    Log($"Font CSS: {(string.IsNullOrEmpty(fontCss) ? "NOT FOUND" : "FOUND")}");
 
-                    string teacherTempPath = await ProcessRedAnswersToTemp(filePath, "teacherNotes");
-                    string studentTempPath = await ProcessRedAnswersToTemp(filePath, "studentAnswers");
-
-                    string teacherAnswerHtml = "";
-                    string studentAnswerHtml = "";
-                    
-                    if (!string.IsNullOrEmpty(teacherTempPath) && File.Exists(teacherTempPath))
-                    {
-                        teacherAnswerHtml = await File.ReadAllTextAsync(teacherTempPath);
-                        Log($"Loaded teacher notes from temp: {teacherAnswerHtml.Length} bytes");
-                    }
-                    
-                    if (!string.IsNullOrEmpty(studentTempPath) && File.Exists(studentTempPath))
-                    {
-                        studentAnswerHtml = await File.ReadAllTextAsync(studentTempPath);
-                        Log($"Loaded student answers from temp: {studentAnswerHtml.Length} bytes");
-                    }
-
-                    Log($"Teacher answers: {(string.IsNullOrEmpty(teacherAnswerHtml) ? "NOT FOUND" : "FOUND")}");
-                    Log($"Student answers: {(string.IsNullOrEmpty(studentAnswerHtml) ? "NOT FOUND" : "FOUND")}");
-
-                    string overlayHtml = BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, teacherAnswerHtml, studentAnswerHtml);
-                    Log($"Built overlay HTML, size: {overlayHtml.Length}");
-
-                    return overlayHtml;
+                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, "", "");
                 }
 
-                Log($"Not a pure steps file, returning original content");
                 return htmlContent;
             }
             catch (Exception ex)
             {
                 Log($"ERROR in ProcessHtmlContent: {ex.Message}");
-                Log($"Stack trace: {ex.StackTrace}");
                 return htmlContent;
             }
         }
 
-        // ============================================================
-        // Extract Content from HTML file
-        // ============================================================
         private async Task<string> ExtractContentFromHtmlFile(string filePath, string fileName, string directory)
         {
             string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
@@ -1091,20 +884,16 @@ namespace BookViewer
             string oriHtmlPath = Path.Combine(directory, nameWithoutExt + "_ori.html");
             if (File.Exists(oriHtmlPath))
             {
-                Log($"Found _ori.html: {oriHtmlPath}");
                 string oriContent = await File.ReadAllTextAsync(oriHtmlPath);
                 contentHtml = ExtractContentFromHtml(oriContent);
-                Log($"Loaded content from _ori.html, size: {contentHtml.Length}");
                 return contentHtml;
             }
 
             string paraXmlPath = Path.Combine(directory, nameWithoutExt + "_para.xml");
             if (File.Exists(paraXmlPath))
             {
-                Log($"Found _para.xml: {paraXmlPath}");
                 string paraContent = await File.ReadAllTextAsync(paraXmlPath);
                 contentHtml = ExtractContentFromParaXml(paraContent);
-                Log($"Loaded content from _para.xml, size: {contentHtml.Length}");
                 return contentHtml;
             }
 
@@ -1112,14 +901,12 @@ namespace BookViewer
             {
                 string fallbackContent = await File.ReadAllTextAsync(filePath);
                 contentHtml = ExtractContentFromHtml(fallbackContent);
-                Log($"Loaded content from original HTML, size: {contentHtml.Length}");
             }
-            catch (Exception ex)
+            catch
             {
-                Log($"Error reading fallback content: {ex.Message}");
                 contentHtml = "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
             }
-            
+
             return contentHtml;
         }
 
@@ -1155,225 +942,17 @@ namespace BookViewer
                     return result;
                 }
             }
-            catch (Exception ex)
-            {
-                Log($"Error parsing para.xml: {ex.Message}");
-            }
+            catch { }
             return "";
         }
 
-        // ============================================================
-        // Process Red Answers - For the main WebView (overlay mode)
-        // ============================================================
-        private async Task<string> ProcessRedAnswersToTemp(string filePath, string answerType)
-        {
-            try
-            {
-                var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileNameWithoutExtension(filePath) ?? "";
-                Log($"=== PROCESS RED ANSWERS for: {fileName} type: {answerType} ===");
-
-                string redAnswerPath = Path.Combine(directory, fileName + "_redAnswer.html");
-                Log($"Looking for redAnswer at: {redAnswerPath}");
-                
-                if (!File.Exists(redAnswerPath))
-                {
-                    string[] altPatterns;
-                    if (answerType == "teacherNotes")
-                    {
-                        altPatterns = new[]
-                        {
-                            Path.Combine(directory, fileName + "_teacherNotes.html"),
-                            Path.Combine(directory, fileName + "_teacher.html"),
-                            Path.Combine(directory, "teacherNotes.html"),
-                            Path.Combine(directory, "teacher.html")
-                        };
-                    }
-                    else
-                    {
-                        altPatterns = new[]
-                        {
-                            Path.Combine(directory, fileName + "_studentAnswers.html"),
-                            Path.Combine(directory, fileName + "_studentAnswer.html"),
-                            Path.Combine(directory, fileName + "_student.html"),
-                            Path.Combine(directory, "studentAnswers.html"),
-                            Path.Combine(directory, "studentAnswer.html"),
-                            Path.Combine(directory, "redAnswer.html")
-                        };
-                    }
-
-                    foreach (var alt in altPatterns)
-                    {
-                        if (File.Exists(alt))
-                        {
-                            redAnswerPath = alt;
-                            Log($"Found alternative redAnswer at: {redAnswerPath}");
-                            break;
-                        }
-                    }
-                }
-
-                if (!File.Exists(redAnswerPath))
-                {
-                    Log($"No redAnswer file found for: {fileName} type: {answerType}");
-                    return "";
-                }
-
-                string redAnswerContent = await File.ReadAllTextAsync(redAnswerPath);
-                Log($"RedAnswer content size: {redAnswerContent.Length} bytes");
-
-                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none\s*;?", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none\s*(?=[;\s}])", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"visibility\s*:\s*hidden\s*;?", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"style\s*=\s*[""']\s*[""']", "", RegexOptions.IgnoreCase);
-                redAnswerContent = Regex.Replace(redAnswerContent, @"display\s*:\s*none", "", RegexOptions.IgnoreCase);
-                
-                redAnswerContent = Regex.Replace(redAnswerContent, 
-                    @"style\s*=\s*[""']([^""']*)display\s*:\s*none\s*;?\s*([^""']*)[""']", 
-                    m => {
-                        string before = m.Groups[1].Value;
-                        string after = m.Groups[2].Value;
-                        string combined = (before + " " + after).Trim();
-                        if (string.IsNullOrEmpty(combined))
-                            return "";
-                        return $"style=\"{combined}\"";
-                    }, RegexOptions.IgnoreCase);
-                
-                Log($"After removing display:none, content size: {redAnswerContent.Length}");
-
-                var bodyMatch = Regex.Match(redAnswerContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
-                if (bodyMatch.Success)
-                {
-                    redAnswerContent = bodyMatch.Groups[1].Value;
-                    Log($"Extracted content from body tag, size: {redAnswerContent.Length}");
-                }
-
-                string extractedContent = "";
-                
-                if (answerType == "teacherNotes")
-                {
-                    var matches = Regex.Matches(redAnswerContent, 
-                        @"<[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
-                        RegexOptions.IgnoreCase);
-                    
-                    if (matches.Count > 0)
-                    {
-                        Log($"Found {matches.Count} teacher note elements");
-                        foreach (Match match in matches)
-                        {
-                            extractedContent += match.Value;
-                        }
-                    }
-                    else
-                    {
-                        var matches2 = Regex.Matches(redAnswerContent, 
-                            @"<[^>]*>[^<]*teacher[^<]*</[^>]*>", 
-                            RegexOptions.IgnoreCase);
-                        if (matches2.Count > 0)
-                        {
-                            Log($"Found {matches2.Count} teacher content elements (fallback)");
-                            foreach (Match match in matches2)
-                            {
-                                extractedContent += match.Value;
-                            }
-                        }
-                        else
-                        {
-                            var svgMatches = Regex.Matches(redAnswerContent, 
-                                @"<svg[^>]*class\s*=\s*[""'][^""']*tbnote[^""']*[""'][^>]*>[\s\S]*?</svg>", 
-                                RegexOptions.IgnoreCase);
-                            if (svgMatches.Count > 0)
-                            {
-                                Log($"Found {svgMatches.Count} SVG teacher note elements");
-                                foreach (Match match in svgMatches)
-                                {
-                                    extractedContent += match.Value;
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    var matches = Regex.Matches(redAnswerContent, 
-                        @"<[^>]*class\s*=\s*[""'][^""']*sa[^""']*[""'][^>]*>[\s\S]*?</[^>]*>", 
-                        RegexOptions.IgnoreCase);
-                    
-                    if (matches.Count > 0)
-                    {
-                        Log($"Found {matches.Count} student answer elements");
-                        foreach (Match match in matches)
-                        {
-                            extractedContent += match.Value;
-                        }
-                    }
-                    else
-                    {
-                        var matches2 = Regex.Matches(redAnswerContent, 
-                            @"<[^>]*>[^<]*(?:student|answer)[^<]*</[^>]*>", 
-                            RegexOptions.IgnoreCase);
-                        if (matches2.Count > 0)
-                        {
-                            Log($"Found {matches2.Count} student answer elements (fallback)");
-                            foreach (Match match in matches2)
-                            {
-                                extractedContent += match.Value;
-                            }
-                        }
-                        else
-                        {
-                            extractedContent = redAnswerContent;
-                            Log("Using all content as student answers (fallback)");
-                        }
-                    }
-                }
-
-                if (string.IsNullOrEmpty(extractedContent))
-                {
-                    Log($"No {answerType} content found");
-                    return "";
-                }
-
-                bool shouldShow = (answerType == "teacherNotes" && _showTeacherNotes) ||
-                                  (answerType == "studentAnswers" && _showStudentAnswers);
-                
-                string displayStyle = shouldShow ? "inline-block" : "none";
-                string typeAttribute = answerType == "teacherNotes" ? "teacherNotes" : "studentAnswers";
-                
-                Log($"Display {answerType}: {displayStyle} (show: {shouldShow})");
-
-                string wrappedContent = $@"
-                    <div redanswertype='{typeAttribute}' style='position:relative; z-index:10; display:{displayStyle}; pointer-events:none;'>
-                        {extractedContent}
-                    </div>";
-
-                string tempFilePath = Path.Combine(_tempFolder, $"{fileName}_{answerType}.html");
-                await File.WriteAllTextAsync(tempFilePath, wrappedContent);
-                Log($"Saved processed {answerType} to temp: {tempFilePath} ({wrappedContent.Length} bytes)");
-
-                return tempFilePath;
-            }
-            catch (Exception ex)
-            {
-                Log($"Error processing {answerType}: {ex.Message}");
-                return "";
-            }
-        }
-
-        // ============================================================
-        // Build Overlay HTML - For the main WebView
-        // ============================================================
         private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss, string teacherAnswerHtml, string studentAnswerHtml)
         {
             if (string.IsNullOrEmpty(bgImage))
-            {
                 bgImage = GetPlaceholderImage();
-            }
 
             if (string.IsNullOrEmpty(contentHtml))
-            {
                 contentHtml = "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
-            }
 
             double zoom = _currentZoom;
 
@@ -1386,36 +965,19 @@ namespace BookViewer
                 <title>{fileName}</title>
                 <style>
                     {fontCss}
-                    * {{
-                        margin: 0;
-                        padding: 0;
-                        box-sizing: border-box;
-                    }}
+                    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
                     html, body {{
                         width: 100%;
                         height: 100%;
                         overflow: auto;
                         background: #1a1a2e;
-                        -webkit-font-smoothing: antialiased;
-                        -moz-osx-font-smoothing: grayscale;
                     }}
                     body {{
                         display: flex;
                         justify-content: center;
-                        align-items: center;
+                        align-items: flex-start;
                         min-height: 100vh;
                         padding: 10px;
-                        margin: 0;
-                        overflow: auto;
-                    }}
-                    .page-wrapper {{
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        width: 100%;
-                        height: 100%;
-                        min-height: 100vh;
-                        overflow: auto;
                     }}
                     .page-container {{
                         position: relative;
@@ -1427,182 +989,55 @@ namespace BookViewer
                         overflow: hidden;
                         border-radius: 4px;
                         transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
-                        transform-origin: center center;
+                        transform-origin: top center;
                     }}
                     .background-img {{
                         position: absolute;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
+                        top: 0; left: 0;
+                        width: 100%; height: 100%;
                         object-fit: contain;
                         pointer-events: none;
                         z-index: 1;
-                        image-rendering: auto;
-                        image-rendering: -webkit-optimize-contrast;
                     }}
                     .content-overlay {{
                         position: absolute;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
+                        top: 0; left: 0;
+                        width: 100%; height: 100%;
                         z-index: 2;
-                        overflow: hidden;
-                        pointer-events: auto;
                     }}
                     .content-overlay > * {{
                         position: absolute !important;
-                        top: 0;
-                        left: 0;
                     }}
-                    .content-overlay [style*='position:absolute'],
-                    .content-overlay [style*='position:fixed'] {{
-                        position: absolute !important;
-                    }}
-                    .content-overlay [style*='position:relative'] {{
-                        position: absolute !important;
-                    }}
-                    
-                    [redanswertype='teacherNotes'] {{
-                        z-index: 10;
-                        background: rgba(255, 255, 0, 0.15);
-                        border: 2px solid #3498db;
-                        border-radius: 4px;
-                        padding: 4px;
-                        pointer-events: none;
-                    }}
-                    
-                    [redanswertype='studentAnswers'] {{
-                        z-index: 10;
-                        background: rgba(0, 255, 0, 0.15);
-                        border: 2px solid #2ecc71;
-                        border-radius: 4px;
-                        padding: 4px;
-                        pointer-events: none;
-                    }}
-                    
-                    .tbnote.has2 {{
-                        cursor: pointer;
-                    }}
-                    
-                    .zoom-hint {{
-                        position: fixed;
-                        bottom: 20px;
-                        left: 50%;
-                        transform: translateX(-50%);
-                        color: #8899bb;
-                        font-size: 12px;
-                        background: rgba(0,0,0,0.7);
-                        padding: 4px 12px;
-                        border-radius: 12px;
-                        pointer-events: none;
-                        z-index: 100;
-                        opacity: 0.6;
-                        font-family: Arial, sans-serif;
-                    }}
-                    
-                    ::-webkit-scrollbar {{
-                        width: 6px;
-                        height: 6px;
-                    }}
-                    ::-webkit-scrollbar-track {{
-                        background: #1a1a2e;
-                    }}
-                    ::-webkit-scrollbar-thumb {{
-                        background: #2d2d44;
-                        border-radius: 3px;
-                    }}
-                    ::-webkit-scrollbar-thumb:hover {{
-                        background: #3d3d54;
-                    }}
+                    ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+                    ::-webkit-scrollbar-track {{ background: #1a1a2e; }}
+                    ::-webkit-scrollbar-thumb {{ background: #2d2d44; border-radius: 3px; }}
                 </style>
             </head>
             <body>
-                <div class='page-wrapper'>
-                    <div class='page-container'>
-                        <img class='background-img' src='{bgImage}' alt='Background' />
-                        <div class='content-overlay'>
-                            {contentHtml}
-                            {teacherAnswerHtml}
-                            {studentAnswerHtml}
-                        </div>
+                <div class='page-container'>
+                    <img class='background-img' src='{bgImage}' alt='' />
+                    <div class='content-overlay'>
+                        {contentHtml}
+                        {teacherAnswerHtml}
+                        {studentAnswerHtml}
                     </div>
                 </div>
-                <div class='zoom-hint'>🔍 Pinch to zoom | Zoom: {zoom:F1}x</div>
             </body>
             </html>";
 
             return result;
         }
 
-        // Update the NavigatePrevious and NavigateNext methods in BookService.cs
         public void NavigatePrevious()
         {
-            Log($"NavigatePrevious called. Current index: {_currentPageIndex}, Total pages: {_pageFiles.Count}");
             if (_currentPageIndex > 0)
-            {
                 _ = LoadPageAsync(_currentPageIndex - 1);
-            }
-            else
-            {
-                Log("Already at first page");
-                OnStatusChanged?.Invoke(this, "Already at first page");
-            }
         }
-        
+
         public void NavigateNext()
         {
-            Log($"NavigateNext called. Current index: {_currentPageIndex}, Total pages: {_pageFiles.Count}");
             if (_currentPageIndex < _pageFiles.Count - 1)
-            {
                 _ = LoadPageAsync(_currentPageIndex + 1);
-            }
-            else
-            {
-                Log("Already at last page");
-                OnStatusChanged?.Invoke(this, "Already at last page");
-            }
-        }
-        
-        // Update LoadPageAsync to properly update the index
-        public async Task LoadPageAsync(int index)
-        {
-            if (index < 0 || index >= _pageFiles.Count)
-            {
-                Log($"LoadPageAsync: Invalid index {index}, PageFiles count: {_pageFiles.Count}");
-                return;
-            }
-        
-            try
-            {
-                Log($"=== LOADING PAGE {index} ===");
-                _currentPageIndex = index;
-                var filePath = _pageFiles[index];
-                var fileName = Path.GetFileName(filePath);
-                Log($"File: {fileName}");
-        
-                var content = await File.ReadAllTextAsync(filePath);
-                Log($"Raw content size: {content.Length} bytes");
-        
-                var processedHtml = await ProcessHtmlContent(content, filePath);
-                _currentPageHtml = processedHtml;
-                Log($"Processed HTML size: {processedHtml.Length} bytes");
-        
-                OnPageChanged?.Invoke(this, processedHtml);
-                OnStatusChanged?.Invoke(this, $"Viewing: {fileName} ({index + 1}/{_pageFiles.Count})");
-                
-                // Also update the UI through the event
-                OnPagesLoaded?.Invoke(this, _pageFiles);
-                
-                Log($"=== PAGE {index} LOADED SUCCESSFULLY ===");
-            }
-            catch (Exception ex)
-            {
-                Log($"ERROR loading page: {ex.Message}");
-                Log($"Stack trace: {ex.StackTrace}");
-                OnStatusChanged?.Invoke(this, $"Error loading page: {ex.Message}");
-            }
         }
 
         public void ToggleAnswers(bool show)
