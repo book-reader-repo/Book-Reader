@@ -166,6 +166,101 @@ namespace BookViewer
             }
         }
 
+        
+        public async Task<string> BuildPageHtmlForRenderAsync(
+            string filePath,
+            bool includeAnswers,
+            bool includeTeacherNotes,
+            bool includeStudentAnswers)
+        {
+            var directory = Path.GetDirectoryName(filePath) ?? "";
+            var fileName = Path.GetFileName(filePath) ?? "";
+        
+            string bgImage = GetStepBackgroundImage(filePath);
+            string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
+            string fontCss = await GetFontCssWithEmbeddedFonts(directory);
+        
+            string teacherHtml = "";
+            string studentHtml = "";
+        
+            if (includeAnswers)
+            {
+                if (includeTeacherNotes)
+                {
+                    var redContent = await GetRedAnswerContentAsync(filePath, "teacherNotes");
+                    if (!string.IsNullOrEmpty(redContent))
+                    {
+                        teacherHtml = $@"<div style='position:absolute;top:0;left:0;width:100%;height:100%;z-index:20;pointer-events:none;'>
+                            <style>.tbnote {{ background: rgba(255,255,0,0.25); border: 3px solid #3498db; border-radius: 4px; padding: 3px; }}</style>
+                            {redContent}
+                        </div>";
+                    }
+                }
+        
+                if (includeStudentAnswers)
+                {
+                    var redContent = await GetRedAnswerContentAsync(filePath, "studentAnswers");
+                    if (!string.IsNullOrEmpty(redContent))
+                    {
+                        studentHtml = $@"<div style='position:absolute;top:0;left:0;width:100%;height:100%;z-index:30;pointer-events:none;'>
+                            <style>.sa {{ background: rgba(255,255,0,0.25); border: 3px solid #2ecc71; border-radius: 4px; padding: 3px; }}</style>
+                            {redContent}
+                        </div>";
+                    }
+                }
+            }
+        
+            return $@"<!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset='UTF-8'>
+        <style>
+            {fontCss}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            html, body {{
+                width: 1024px;
+                height: 1344px;
+                overflow: hidden;
+                background: #ffffff;
+            }}
+            .page-container {{
+                position: relative;
+                width: 1024px;
+                height: 1344px;
+                background: #ffffff;
+                overflow: hidden;
+            }}
+            .background-img {{
+                position: absolute;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                object-fit: contain;
+                pointer-events: none;
+                z-index: 1;
+            }}
+            .content-overlay {{
+                position: absolute;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                z-index: 2;
+            }}
+            .content-overlay > * {{ position: absolute !important; }}
+        </style>
+        </head>
+        <body>
+        <div class='page-container'>
+            <img class='background-img' src='{bgImage}' />
+            <div class='content-overlay'>
+                {contentHtml}
+                {teacherHtml}
+                {studentHtml}
+            </div>
+        </div>
+        </body>
+        </html>";
+        }
+
+
         public void ToggleTwoPageSpread()
         {
             _twoPageSpread = !_twoPageSpread;
