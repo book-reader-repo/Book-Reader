@@ -2,232 +2,216 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="BookViewer.Views.BookViewerPage"
-             Title="Book Viewer"
-             BackgroundColor="#ffffff">
-    
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+             BackgroundColor="#FFFFFF">
 
-        <!-- Toolbar (scrollable for small screens) -->
-        <ScrollView Grid.Row="0" 
-                    Orientation="Horizontal" 
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- Top bar (green) -->
+        <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="12,10"
+              ColumnDefinitions="Auto,*,Auto">
+
+            <Button Grid.Column="0"
+                    Text="Back"
+                    Clicked="OnBackClicked"
+                    BackgroundColor="Transparent"
+                    TextColor="White"
+                    FontSize="14"
+                    Padding="8,4"
+                    VerticalOptions="Center"/>
+
+            <Label x:Name="BookTitleLabel"
+                   Grid.Column="1"
+                   Text=""
+                   TextColor="White"
+                   FontSize="16"
+                   FontAttributes="Bold"
+                   HorizontalTextAlignment="Center"
+                   VerticalOptions="Center"
+                   LineBreakMode="TailTruncation"/>
+
+            <Label Grid.Column="2"
+                   Text=""
+                   WidthRequest="40"/>
+        </Grid>
+
+        <!-- Toolbar (light gray, scrollable) -->
+        <ScrollView Grid.Row="1"
+                    Orientation="Horizontal"
                     HorizontalScrollBarVisibility="Never"
-                    BackgroundColor="#cccccc">
-            <Grid Padding="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+                    BackgroundColor="#F5F5F5">
+            <Grid Padding="8,6" ColumnSpacing="6">
 
                 <!-- Navigation group -->
-                <Grid Grid.Column="0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Back button -->
-                    <Button x:Name="BackButton"
-                            Grid.Column="0"
-                            Text="◀"
-                            Clicked="OnBackClicked"
-                            BackgroundColor="#aaaaa"
-                            TextColor="White"
-                            Padding="10,6"/>
-
-                    <Button x:Name="PrevButton" 
-                            Grid.Column="0"
-                            Text="◀" 
+                <HorizontalStackLayout Grid.Column="0" Spacing="6">
+                    <Button x:Name="PrevButton"
+                            Text="Prev"
                             Clicked="OnPrevClicked"
-                            BackgroundColor="#aaaaa"
-                            TextColor="White"
-                            IsEnabled="False"
-                            Padding="10,6"/>
+                            BackgroundColor="#E0E0E0"
+                            TextColor="#333"
+                            FontSize="13"
+                            Padding="12,6"
+                            IsEnabled="False"/>
 
-                    <Label x:Name="PageInfoLabel" 
-                           Grid.Column="1"
+                    <Label x:Name="PageInfoLabel"
                            Text="0 / 0"
-                           TextColor="#8899bb"
-                           FontSize="14"
+                           TextColor="#666"
+                           FontSize="13"
                            VerticalOptions="Center"
-                           HorizontalTextAlignment="Center"
-                           Padding="8,0"
-                           WidthRequest="60"/>
+                           WidthRequest="60"
+                           HorizontalTextAlignment="Center"/>
 
-                    <Button x:Name="NextButton" 
-                            Grid.Column="2"
-                            Text="▶" 
+                    <Button x:Name="NextButton"
+                            Text="Next"
                             Clicked="OnNextClicked"
-                            BackgroundColor="#aaaaa"
-                            TextColor="White"
-                            IsEnabled="False"
-                            Padding="10,6"/>
-                </Grid>
+                            BackgroundColor="#E0E0E0"
+                            TextColor="#333"
+                            FontSize="13"
+                            Padding="12,6"
+                            IsEnabled="False"/>
+                </HorizontalStackLayout>
 
-                <Button x:Name="GridButton" 
+                <Button x:Name="GridButton"
                         Grid.Column="1"
-                        Text="▦ Grid" 
+                        Text="Grid"
                         Clicked="OnGridClicked"
-                        BackgroundColor="#88f7cf"
-                        TextColor="White"
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
                         IsEnabled="False"
-                        Padding="10,6"
-                        Margin="8,0,0,0"/>
+                        Margin="6,0,0,0"/>
 
-                <Button x:Name="TeacherNotesButton" 
+                <Button x:Name="TeacherNotesButton"
                         Grid.Column="2"
-                        Text="Teacher Notes" 
+                        Text="Notes"
                         Clicked="OnTeacherNotesClicked"
-                        BackgroundColor="#88d2f7"
-                        TextColor="White"
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
                         IsEnabled="False"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        Margin="6,0,0,0"/>
 
-                <Button x:Name="StudentAnswersButton" 
+                <Button x:Name="StudentAnswersButton"
                         Grid.Column="3"
-                        Text="Student Answers" 
+                        Text="Answers"
                         Clicked="OnStudentAnswersClicked"
-                        BackgroundColor="#f7888a"
-                        TextColor="White"
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
                         IsEnabled="False"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        Margin="6,0,0,0"/>
 
-                <Button x:Name="DecryptButton" 
+                <Button x:Name="DecryptButton"
                         Grid.Column="4"
-                        Text="Decrypt" 
+                        Text="Decrypt"
                         Clicked="OnDecryptClicked"
-                        BackgroundColor="#f7be88"
-                        TextColor="White"
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
                         IsEnabled="False"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        Margin="6,0,0,0"/>
 
-                <Button x:Name="SideBySideButton" 
+                <Button x:Name="SideBySideButton"
                         Grid.Column="5"
-                        Text="1/2" 
+                        Text="1 Page"
                         Clicked="OnSideBySideClicked"
-                        BackgroundColor="#aaaaaa"
-                        TextColor="White"
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
                         IsEnabled="False"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        Margin="6,0,0,0"/>
 
-                <Button x:Name="ViewModeButton" 
+                <Button x:Name="ViewModeButton"
                         Grid.Column="6"
-                        Text="Content" 
+                        Text="View"
                         Clicked="OnViewModeClicked"
-                        BackgroundColor="#aaaaaa"
-                        TextColor="White"
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
                         IsEnabled="False"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        Margin="6,0,0,0"/>
 
-                <Button x:Name="ExportPdfButton" 
+                <Button x:Name="ExportPdfButton"
                         Grid.Column="7"
-                        Text="PDF" 
+                        Text="PDF"
                         Clicked="OnExportPdfClicked"
-                        BackgroundColor="#f4a9fc"
-                        TextColor="White"
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
                         IsEnabled="False"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        Margin="6,0,0,0"/>
 
-                <Button x:Name="ZoomOutButton" 
+                <Button x:Name="ZoomOutButton"
                         Grid.Column="8"
-                        Text="⌕ -" 
+                        Text="-"
                         Clicked="OnZoomOutClicked"
-                        BackgroundColor="#aaaaaa"
-                        TextColor="White"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
+                        Margin="6,0,0,0"/>
 
-                <Label x:Name="ZoomLabel" 
+                <Label x:Name="ZoomLabel"
                        Grid.Column="9"
                        Text="1.0x"
-                       TextColor="#8899bb"
-                       FontSize="14"
+                       TextColor="#666"
+                       FontSize="13"
                        VerticalOptions="Center"
+                       WidthRequest="45"
                        HorizontalTextAlignment="Center"
-                       Padding="4,0"
-                       WidthRequest="40"/>
+                       Margin="6,0,0,0"/>
 
-                <Button x:Name="ZoomInButton" 
+                <Button x:Name="ZoomInButton"
                         Grid.Column="10"
-                        Text="⌕ +" 
+                        Text="+"
                         Clicked="OnZoomInClicked"
-                        BackgroundColor="#aaaaaa"
-                        TextColor="White"
-                        Padding="10,6"
-                        Margin="4,0,0,0"/>
+                        BackgroundColor="#E0E0E0"
+                        TextColor="#333"
+                        FontSize="13"
+                        Padding="12,6"
+                        Margin="6,0,0,0"/>
             </Grid>
         </ScrollView>
 
-        <!-- Content Area -->
-        <Grid Grid.Row="1" BackgroundColor="#ffffff">
+        <!-- Content area -->
+        <Grid Grid.Row="2" BackgroundColor="#E8E8E8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftColumn" Width="*"/>
                 <ColumnDefinition x:Name="RightColumn" Width="0"/>
             </Grid.ColumnDefinitions>
-            
-            <WebView x:Name="ContentWebView" 
+
+            <WebView x:Name="ContentWebView"
                      Grid.Column="0"
-                     BackgroundColor="#ffffff"/>
-            
-            <WebView x:Name="NextPageWebView" 
+                     BackgroundColor="#E8E8E8"/>
+
+            <WebView x:Name="NextPageWebView"
                      Grid.Column="1"
-                     BackgroundColor="#ffffff"
+                     BackgroundColor="#E8E8E8"
                      IsVisible="False"/>
-            
-            <WebView x:Name="TeacherWebView" 
+
+            <WebView x:Name="TeacherWebView"
                      Grid.Column="1"
                      BackgroundColor="Transparent"
                      IsVisible="False"/>
-            
-            <WebView x:Name="StudentWebView" 
+
+            <WebView x:Name="StudentWebView"
                      Grid.Column="1"
                      BackgroundColor="Transparent"
                      IsVisible="False"/>
         </Grid>
 
-        <!-- Status Bar -->
-        <Grid Grid.Row="2" BackgroundColor="#cccccc" Padding="8,4">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <Label x:Name="StatusLabel" 
-                   Grid.Column="0"
-                   Text="Ready"
-                   TextColor="#000000"
-                   FontSize="12"
-                   LineBreakMode="TailTruncation"/>
-
-            <Label x:Name="BookTitleLabel" 
-                   Grid.Column="1"
-                   Text="No book"
-                   TextColor="#000000"
-                   FontSize="12"
-                   Margin="8,0,0,0"
+        <!-- Status bar -->
+        <Grid Grid.Row="3" BackgroundColor="#F5F5F5" Padding="12,6">
+            <Label x:Name="StatusLabel"
+                   Text=""
+                   TextColor="#666"
+                   FontSize="11"
                    LineBreakMode="TailTruncation"/>
         </Grid>
     </Grid>
