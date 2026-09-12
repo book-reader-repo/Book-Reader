@@ -40,11 +40,11 @@
                     Clicked="OnCloseClicked"
                     BackgroundColor="#34495e" TextColor="White"/>
             <Label Grid.Column="1" x:Name="StatusText" Text=""
-                   TextColor="#8899bb" FontSize="12"
+                   TextColor="#aaaaaa" FontSize="12"
                    VerticalOptions="Center" HorizontalTextAlignment="Center"/>
             <Button Grid.Column="2" Text="Close"
                     Clicked="OnCloseClicked"
-                    BackgroundColor="#34495e" TextColor="White"/>
+                    BackgroundColor="#aaaaaa" TextColor="White"/>
         </Grid>
     </Grid>
 </ContentPage>
