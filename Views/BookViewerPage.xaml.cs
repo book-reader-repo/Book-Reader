@@ -66,6 +66,10 @@ public partial class BookViewerPage : ContentPage
         {
         }
     }
+    private async void OnBackClicked(object sender, EventArgs e)
+    {
+        await Navigation.PopAsync();
+    }
 
     public BookViewerPage(string bookFolder, int startPage)
     {
