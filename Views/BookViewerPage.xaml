@@ -43,6 +43,15 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
+                    <!-- Back button -->
+                    <Button x:Name="BackButton"
+                            Grid.Column="0"
+                            Text="◀"
+                            Clicked="OnBackClicked"
+                            BackgroundColor="#34495e"
+                            TextColor="White"
+                            Padding="10,6"/>
+
                     <Button x:Name="PrevButton" 
                             Grid.Column="0"
                             Text="◀" 
