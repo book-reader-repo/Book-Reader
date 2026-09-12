@@ -48,7 +48,7 @@
                             Grid.Column="0"
                             Text="◀"
                             Clicked="OnBackClicked"
-                            BackgroundColor="#34495e"
+                            BackgroundColor="#aaaaa"
                             TextColor="White"
                             Padding="10,6"/>
 
@@ -56,7 +56,7 @@
                             Grid.Column="0"
                             Text="◀" 
                             Clicked="OnPrevClicked"
-                            BackgroundColor="#34495e"
+                            BackgroundColor="#aaaaa"
                             TextColor="White"
                             IsEnabled="False"
                             Padding="10,6"/>
@@ -75,7 +75,7 @@
                             Grid.Column="2"
                             Text="▶" 
                             Clicked="OnNextClicked"
-                            BackgroundColor="#34495e"
+                            BackgroundColor="#aaaaa"
                             TextColor="White"
                             IsEnabled="False"
                             Padding="10,6"/>
@@ -85,7 +85,7 @@
                         Grid.Column="1"
                         Text="▦ Grid" 
                         Clicked="OnGridClicked"
-                        BackgroundColor="#16a085"
+                        BackgroundColor="#88f7cf"
                         TextColor="White"
                         IsEnabled="False"
                         Padding="10,6"
@@ -95,7 +95,7 @@
                         Grid.Column="2"
                         Text="Teacher Notes" 
                         Clicked="OnTeacherNotesClicked"
-                        BackgroundColor="#3498db"
+                        BackgroundColor="#88d2f7"
                         TextColor="White"
                         IsEnabled="False"
                         Padding="10,6"
@@ -105,7 +105,7 @@
                         Grid.Column="3"
                         Text="Student Answers" 
                         Clicked="OnStudentAnswersClicked"
-                        BackgroundColor="#2ecc71"
+                        BackgroundColor="#f7888a"
                         TextColor="White"
                         IsEnabled="False"
                         Padding="10,6"
@@ -115,7 +115,7 @@
                         Grid.Column="4"
                         Text="Decrypt" 
                         Clicked="OnDecryptClicked"
-                        BackgroundColor="#f39c12"
+                        BackgroundColor="#f7be88"
                         TextColor="White"
                         IsEnabled="False"
                         Padding="10,6"
@@ -125,7 +125,7 @@
                         Grid.Column="5"
                         Text="1/2" 
                         Clicked="OnSideBySideClicked"
-                        BackgroundColor="#2c3e50"
+                        BackgroundColor="#aaaaaa"
                         TextColor="White"
                         IsEnabled="False"
                         Padding="10,6"
@@ -135,7 +135,7 @@
                         Grid.Column="6"
                         Text="Content" 
                         Clicked="OnViewModeClicked"
-                        BackgroundColor="#2c3e50"
+                        BackgroundColor="#aaaaaa"
                         TextColor="White"
                         IsEnabled="False"
                         Padding="10,6"
@@ -145,7 +145,7 @@
                         Grid.Column="7"
                         Text="PDF" 
                         Clicked="OnExportPdfClicked"
-                        BackgroundColor="#9b59b6"
+                        BackgroundColor="#f4a9fc"
                         TextColor="White"
                         IsEnabled="False"
                         Padding="10,6"
@@ -155,7 +155,7 @@
                         Grid.Column="8"
                         Text="⌕ -" 
                         Clicked="OnZoomOutClicked"
-                        BackgroundColor="#2c3e50"
+                        BackgroundColor="#aaaaaa"
                         TextColor="White"
                         Padding="10,6"
                         Margin="4,0,0,0"/>
@@ -174,7 +174,7 @@
                         Grid.Column="10"
                         Text="⌕ +" 
                         Clicked="OnZoomInClicked"
-                        BackgroundColor="#2c3e50"
+                        BackgroundColor="#aaaaaa"
                         TextColor="White"
                         Padding="10,6"
                         Margin="4,0,0,0"/>
@@ -182,7 +182,7 @@
         </ScrollView>
 
         <!-- Content Area -->
-        <Grid Grid.Row="1" BackgroundColor="#2d2d44">
+        <Grid Grid.Row="1" BackgroundColor="#ffffff">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftColumn" Width="*"/>
                 <ColumnDefinition x:Name="RightColumn" Width="0"/>
@@ -190,11 +190,11 @@
             
             <WebView x:Name="ContentWebView" 
                      Grid.Column="0"
-                     BackgroundColor="#2d2d44"/>
+                     BackgroundColor="#ffffff"/>
             
             <WebView x:Name="NextPageWebView" 
                      Grid.Column="1"
-                     BackgroundColor="#2d2d44"
+                     BackgroundColor="#ffffff"
                      IsVisible="False"/>
             
             <WebView x:Name="TeacherWebView" 
@@ -209,7 +209,7 @@
         </Grid>
 
         <!-- Status Bar -->
-        <Grid Grid.Row="2" BackgroundColor="#16213e" Padding="8,4">
+        <Grid Grid.Row="2" BackgroundColor="#cccccc" Padding="8,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -218,14 +218,14 @@
             <Label x:Name="StatusLabel" 
                    Grid.Column="0"
                    Text="Ready"
-                   TextColor="#8899bb"
+                   TextColor="#000000"
                    FontSize="12"
                    LineBreakMode="TailTruncation"/>
 
             <Label x:Name="BookTitleLabel" 
                    Grid.Column="1"
                    Text="No book"
-                   TextColor="#8899bb"
+                   TextColor="#000000"
                    FontSize="12"
                    Margin="8,0,0,0"
                    LineBreakMode="TailTruncation"/>
