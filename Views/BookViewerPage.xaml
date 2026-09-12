@@ -93,7 +93,7 @@
 
                 <Button x:Name="TeacherNotesButton" 
                         Grid.Column="2"
-                        Text="👨‍🏫 Notes" 
+                        Text="Teacher Notes" 
                         Clicked="OnTeacherNotesClicked"
                         BackgroundColor="#3498db"
                         TextColor="White"
@@ -103,7 +103,7 @@
 
                 <Button x:Name="StudentAnswersButton" 
                         Grid.Column="3"
-                        Text="👨‍🎓 Answers" 
+                        Text="Student Answers" 
                         Clicked="OnStudentAnswersClicked"
                         BackgroundColor="#2ecc71"
                         TextColor="White"
@@ -113,7 +113,7 @@
 
                 <Button x:Name="DecryptButton" 
                         Grid.Column="4"
-                        Text="🔓 Decrypt" 
+                        Text="Decrypt" 
                         Clicked="OnDecryptClicked"
                         BackgroundColor="#f39c12"
                         TextColor="White"
@@ -123,7 +123,7 @@
 
                 <Button x:Name="SideBySideButton" 
                         Grid.Column="5"
-                        Text="📄 1/2" 
+                        Text="1/2" 
                         Clicked="OnSideBySideClicked"
                         BackgroundColor="#2c3e50"
                         TextColor="White"
@@ -133,7 +133,7 @@
 
                 <Button x:Name="ViewModeButton" 
                         Grid.Column="6"
-                        Text="📄 Content" 
+                        Text="Content" 
                         Clicked="OnViewModeClicked"
                         BackgroundColor="#2c3e50"
                         TextColor="White"
@@ -143,7 +143,7 @@
 
                 <Button x:Name="ExportPdfButton" 
                         Grid.Column="7"
-                        Text="📄 PDF" 
+                        Text="PDF" 
                         Clicked="OnExportPdfClicked"
                         BackgroundColor="#9b59b6"
                         TextColor="White"
@@ -153,7 +153,7 @@
 
                 <Button x:Name="ZoomOutButton" 
                         Grid.Column="8"
-                        Text="🔍-" 
+                        Text="⌕ -" 
                         Clicked="OnZoomOutClicked"
                         BackgroundColor="#2c3e50"
                         TextColor="White"
@@ -172,7 +172,7 @@
 
                 <Button x:Name="ZoomInButton" 
                         Grid.Column="10"
-                        Text="🔍+" 
+                        Text="⌕ +" 
                         Clicked="OnZoomInClicked"
                         BackgroundColor="#2c3e50"
                         TextColor="White"
