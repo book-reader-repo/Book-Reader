@@ -17,7 +17,7 @@
                    VerticalOptions="Center"/>
 
             <Button Grid.Column="2"
-                    Text="🔄"
+                    Text=" ⟳ Reload"
                     Clicked="OnRefreshClicked"
                     BackgroundColor="Transparent"
                     TextColor="White"
@@ -27,7 +27,7 @@
                     VerticalOptions="Center"/>
 
             <Button Grid.Column="3"
-                    Text="⬇"
+                    Text="⬇ Download"
                     Clicked="OnDownloadClicked"
                     BackgroundColor="Transparent"
                     TextColor="White"
