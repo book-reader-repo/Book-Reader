@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="BookViewer.Views.LibraryPage"
+             BackgroundColor="#FFFFFF">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Top bar -->
+        <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="16,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Label Grid.Column="0" Text="Oxford iSolution" 
+                   TextColor="White" FontSize="22" FontAttributes="Bold" 
+                   VerticalOptions="Center"/>
+
+            <HorizontalStackLayout Grid.Column="1" Spacing="12" Margin="40,0,0,0">
+                <Label Text="ENGLISH ▾" TextColor="White" FontSize="14" VerticalOptions="Center"/>
+                <Label Text="S1 ▾" TextColor="White" FontSize="14" VerticalOptions="Center"/>
+            </HorizontalStackLayout>
+
+            <Label Grid.Column="3" Text="☰" TextColor="White" FontSize="24" VerticalOptions="Center"/>
+        </Grid>
+
+        <!-- Book grid -->
+        <ScrollView Grid.Row="1">
+            <CollectionView x:Name="BooksCollection" Margin="24" 
+                            SelectionMode="Single"
+                            SelectionChanged="OnBookSelected">
+                <CollectionView.ItemsLayout>
+                    <GridItemsLayout Orientation="Vertical"
+                                     Span="4"
+                                     HorizontalItemSpacing="24"
+                                     VerticalItemSpacing="24"/>
+                </CollectionView.ItemsLayout>
+
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <VerticalStackLayout WidthRequest="180" Spacing="12">
+                            <Frame Padding="0" CornerRadius="90"
+                                   WidthRequest="180" HeightRequest="180"
+                                   HorizontalOptions="Center"
+                                   BackgroundColor="#B2DFDB"
+                                   HasShadow="False">
+                                <Image Source="{Binding CoverImageSource}"
+                                       Aspect="AspectFill"
+                                       WidthRequest="180" HeightRequest="180"/>
+                            </Frame>
+                            <Label Text="{Binding DisplayName}"
+                                   FontSize="13"
+                                   TextColor="#333"
+                                   HorizontalTextAlignment="Center"
+                                   LineBreakMode="TailTruncation"
+                                   MaxLines="2"/>
+                        </VerticalStackLayout>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </ScrollView>
+
+        <!-- Empty state -->
+        <VerticalStackLayout x:Name="EmptyState" Grid.Row="1"
+                             IsVisible="False"
+                             VerticalOptions="Center" HorizontalOptions="Center"
+                             Spacing="12">
+            <Label Text="📚" FontSize="60" HorizontalOptions="Center"/>
+            <Label Text="No books yet" FontSize="18" TextColor="#666" HorizontalOptions="Center"/>
+            <Label Text="Tap Download to add a book" FontSize="14" TextColor="#999" HorizontalOptions="Center"/>
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>
