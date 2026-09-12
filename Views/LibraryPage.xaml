@@ -78,5 +78,13 @@
             <Label Text="No books yet" FontSize="18" TextColor="#666" HorizontalOptions="Center"/>
             <Label Text="Tap Download to add a book" FontSize="14" TextColor="#999" HorizontalOptions="Center"/>
         </VerticalStackLayout>
+        <!-- NEW: Status bar -->
+        <Grid Grid.Row="2" BackgroundColor="#16213e" Padding="8,4">
+            <Label x:Name="StatusLabel" 
+                   Text="Ready"
+                   TextColor="#8899bb"
+                   FontSize="12"
+                   LineBreakMode="TailTruncation"/>
+        </Grid>
     </Grid>
 </ContentPage>
