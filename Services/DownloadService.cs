@@ -32,124 +32,121 @@ namespace BookViewer.Services
 
         public async Task DownloadBookAsync(int bookNumber)
         {
-            if (_isDownloading)
-            {
-                OnError?.Invoke(this, "Download already in progress");
-                return;
-            }
-
+            if (_isDownloading) { ... return; }
             _isDownloading = true;
+        
             try
             {
+                Log($"=== DOWNLOAD BOOK {bookNumber} START ===");
                 OnProgress?.Invoke(this, 0);
-
-                // Get the books directory
-                var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
+        
+                var booksDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer", "Books");
                 Directory.CreateDirectory(booksDir);
-
+                Log($"Books directory: {booksDir}");
+        
                 var tempDir = Path.Combine(booksDir, "temp_" + Guid.NewGuid().ToString().Substring(0, 8));
                 Directory.CreateDirectory(tempDir);
-
-                // Final book directory
+                Log($"Temp directory: {tempDir}");
+        
                 var finalBookDir = Path.Combine(booksDir, $"book_{bookNumber}");
-                
-                // If the book already exists, ask for confirmation
                 if (Directory.Exists(finalBookDir))
                 {
-                    OnError?.Invoke(this, $"Book {bookNumber} already exists at:\n{finalBookDir}\nPlease delete it first.");
+                    Log($"Book {bookNumber} already exists at {finalBookDir}");
+                    OnError?.Invoke(this, $"Book {bookNumber} already exists.");
                     _isDownloading = false;
                     return;
                 }
-
-                // Try different URL patterns (like the Abacus code does)
+        
                 var urlPatterns = new[]
                 {
                     $"ebook_distribute/V3_otf/{bookNumber}/P02/book_{bookNumber}_P02.zip",
                     $"ebook_distribute/V3_otf/{bookNumber}/book_{bookNumber}.zip",
                 };
-
+        
                 bool bookDownloaded = false;
                 string bookExtractDir = null;
                 string parentDir = null;
-
+        
                 for (int i = 0; i < urlPatterns.Length; i++)
                 {
                     if (bookDownloaded) break;
-
+        
                     var pattern = urlPatterns[i];
                     var url = $"{BaseUrl}/{pattern}";
                     var savePath = Path.Combine(tempDir, $"book_{bookNumber}.zip");
-
+        
+                    Log($"Trying URL: {url}");
                     OnProgress?.Invoke(this, 10 + (i * 20));
-
+        
                     if (await DownloadFileAsync(url, savePath))
                     {
+                        Log($"Downloaded to: {savePath}");
                         if (await VerifyZipAsync(savePath))
                         {
+                            Log($"Zip verified, extracting...");
                             bookExtractDir = Path.Combine(tempDir, "extracted");
                             Directory.CreateDirectory(bookExtractDir);
-
+        
                             OnProgress?.Invoke(this, 30);
-                            
-                            // Extract the main book zip
                             await ExtractZipAsync(savePath, bookExtractDir);
                             File.Delete(savePath);
                             bookDownloaded = true;
-
+        
                             parentDir = pattern.Contains("/P02/")
                                 ? pattern.Split("/P02/")[0] + "/P02"
                                 : pattern.Substring(0, pattern.LastIndexOf('/'));
-
+                            Log($"Parent dir: {parentDir}");
+        
                             OnProgress?.Invoke(this, 50);
-                            
-                            // Download and extract resource PC zip
+                            Log("Downloading resource PC zip...");
                             await DownloadAndExtractResourcePCAsync(bookNumber, parentDir, bookExtractDir);
-
+        
                             OnProgress?.Invoke(this, 70);
-                            
-                            // Find unit UIDs from the extracted files
                             var unitUids = FindUnitUids(bookExtractDir);
-                            
-                            // Download and extract unit zips
+                            Log($"Found {unitUids.Count} unit UIDs: {string.Join(", ", unitUids)}");
+        
                             if (unitUids.Any())
                             {
+                                Log("Downloading unit zips...");
                                 await DownloadAndExtractUnitsAsync(unitUids, parentDir, bookNumber, bookExtractDir);
                             }
-
+        
                             OnProgress?.Invoke(this, 85);
-                            
-                            // Create the final directory
                             Directory.CreateDirectory(finalBookDir);
-                            
-                            // Copy everything from extractDir to finalBookDir, preserving structure
                             CopyDirectory(bookExtractDir, finalBookDir);
-
-                            // Try to find and copy the book cover image
+                            Log($"Copied to final directory: {finalBookDir}");
+        
                             await CopyBookCoverAsync(bookNumber, finalBookDir);
-
-                            // Delete temp folder
+        
                             try { Directory.Delete(tempDir, true); } catch { }
-
+        
                             OnProgress?.Invoke(this, 100);
+                            Log($"=== DOWNLOAD BOOK {bookNumber} SUCCESS ===");
                             OnComplete?.Invoke(this, finalBookDir);
                             _isDownloading = false;
                             return;
                         }
                         else
                         {
+                            Log($"Zip verification failed for {savePath}");
                             File.Delete(savePath);
                         }
                     }
+                    else
+                    {
+                        Log($"Failed to download from {url}");
+                    }
                 }
-
+        
                 if (!bookDownloaded)
                 {
+                    Log($"=== DOWNLOAD BOOK {bookNumber} FAILED ===");
                     OnError?.Invoke(this, $"Failed to download book {bookNumber}");
                 }
             }
             catch (Exception ex)
             {
+                Log($"Exception: {ex.Message}");
                 OnError?.Invoke(this, $"Download failed: {ex.Message}");
             }
             finally
@@ -157,7 +154,6 @@ namespace BookViewer.Services
                 _isDownloading = false;
             }
         }
-
         private async Task ExtractZipAsync(string zipPath, string extractDir)
         {
             try
