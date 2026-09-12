@@ -12,6 +12,7 @@ namespace BookViewer.Views
         public TocPage(string bookFolder, BookData bookData)
         {
             InitializeComponent();
+            NavigationPage.SetHasNavigationBar(this, false);
             _bookFolder = bookFolder;
             _bookData = bookData;
 
