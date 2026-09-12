@@ -27,7 +27,7 @@
                     VerticalOptions="Center"/>
 
             <Button Grid.Column="3"
-                    Text="⬇ Download"
+                    Text="🢃 Download"
                     Clicked="OnDownloadClicked"
                     BackgroundColor="Transparent"
                     TextColor="White"
