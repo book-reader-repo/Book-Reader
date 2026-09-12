@@ -21,9 +21,6 @@ namespace BookViewer
         private string _currentPageHtml = "";
         private readonly Dictionary<string, string> _imageCache = new();
         private readonly Dictionary<string, string> _fontCache = new();
-        private readonly Dictionary<string, int> _stepFileToIndex = new();  // "steps_1" → index in _pageFiles
-        private readonly Dictionary<int, string> _folioToStepFile = new();  // 30 → "steps_1"
-        public Dictionary<int, string> FolioToStepFile => _folioToStepFile;
         private bool _sideBySideMode = false;
         private bool _twoPageSpread = false;
         private string _nextPageHtml = "";
@@ -32,6 +29,9 @@ namespace BookViewer
 
         private bool _showTeacherNotes = false;
         private bool _showStudentAnswers = false;
+
+        private readonly Dictionary<string, int> _stepFileToIndex = new();
+        private readonly Dictionary<int, string> _folioToStepFile = new();
 
         private static readonly object _logLock = new object();
         private static string _logFilePath = null;
@@ -103,6 +103,9 @@ namespace BookViewer
         public bool ShowTeacherNotes => _showTeacherNotes;
         public bool ShowStudentAnswers => _showStudentAnswers;
 
+        public Dictionary<int, string> FolioToStepFile => _folioToStepFile;
+        public Dictionary<string, int> StepFileToIndex => _stepFileToIndex;
+
         public void SetShowTeacherNotes(bool show)
         {
             _showTeacherNotes = show;
@@ -149,6 +152,25 @@ namespace BookViewer
                 _ = LoadPageAsync(_currentPageIndex);
         }
 
+        // ============================================================
+        // Lookup helpers
+        // ============================================================
+        public int GetIndexForStepFile(string stepFile)
+        {
+            if (string.IsNullOrEmpty(stepFile)) return -1;
+            var name = Path.GetFileNameWithoutExtension(stepFile);
+            if (_stepFileToIndex.TryGetValue(name, out int idx))
+                return idx;
+            return -1;
+        }
+
+        public int GetIndexForFolio(int folio)
+        {
+            if (_folioToStepFile.TryGetValue(folio, out var stepFile))
+                return GetIndexForStepFile(stepFile);
+            return -1;
+        }
+
         public async Task<bool> LoadBookAsync(string folderPath)
         {
             try
@@ -156,20 +178,20 @@ namespace BookViewer
                 Log($"=== LOADING BOOK from: {folderPath} ===");
                 Log($"BookService log file: {GetLogFilePath()}");
                 _currentBookPath = folderPath;
-        
+
                 _tempFolder = Path.Combine(FileSystem.CacheDirectory, "BookViewer", $"temp_{Guid.NewGuid().ToString().Substring(0, 8)}");
                 Directory.CreateDirectory(_tempFolder);
                 Log($"Temp folder: {_tempFolder}");
-        
+
                 var bookXmlPath = Path.Combine(folderPath, "book.xml");
-        
+
                 if (!File.Exists(bookXmlPath))
                 {
                     Log($"ERROR: book.xml not found at: {bookXmlPath}");
                     OnStatusChanged?.Invoke(this, "book.xml not found");
                     return false;
                 }
-        
+
                 var folderName = Path.GetFileName(folderPath);
                 var bookIdMatch = Regex.Match(folderName, @"book_(\d+)");
                 if (bookIdMatch.Success)
@@ -177,11 +199,11 @@ namespace BookViewer
                     _currentBookUid = bookIdMatch.Groups[1].Value;
                     Log($"Extracted book ID from folder: {_currentBookUid}");
                 }
-        
+
                 var content = await File.ReadAllTextAsync(bookXmlPath);
                 Log($"book.xml loaded, size: {content.Length} bytes");
                 Log($"book.xml IsEncrypted check: {_decryptionService.IsEncrypted(content)}");
-        
+
                 if (string.IsNullOrEmpty(_currentBookUid))
                 {
                     var uidMatch = Regex.Match(content, @"id=""([^""]+)""");
@@ -191,7 +213,7 @@ namespace BookViewer
                         Log($"Extracted Book UID from book.xml: {_currentBookUid}");
                     }
                 }
-        
+
                 bool bookXmlDecrypted = false;
                 if (_decryptionService.IsEncrypted(content))
                 {
@@ -202,7 +224,7 @@ namespace BookViewer
                         OnStatusChanged?.Invoke(this, "Could not decrypt book.xml - UID not found");
                         return false;
                     }
-        
+
                     content = _decryptionService.DecryptBookFile(content, _currentBookUid);
                     Log($"book.xml decrypted, size: {content.Length} bytes");
                     await File.WriteAllTextAsync(bookXmlPath, content);
@@ -212,33 +234,31 @@ namespace BookViewer
                 {
                     Log("book.xml is NOT encrypted → skipping book.xml decryption");
                 }
-        
+
                 _bookTitle = "Unknown Book";
                 var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
                 if (titleMatch.Success) _bookTitle = titleMatch.Groups[1].Value;
                 Log($"Book title: {_bookTitle}");
                 Log($"Book UID: {_currentBookUid}");
-        
+
                 OnBookLoaded?.Invoke(this, _bookTitle);
-        
-                // Files are decrypted at download time. Only run decryption here if
-                // the book.xml was encrypted (manually copied book).
+
                 if (bookXmlDecrypted)
                 {
                     Log("book.xml was decrypted → running DecryptBookFilesAsync");
                     await DecryptBookFilesAsync(folderPath);
                 }
-        
+
                 _pageFiles.Clear();
-        
+
                 var stepsFiles = Directory.GetFiles(folderPath, "steps_*.html", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(folderPath, "step_*.html", SearchOption.AllDirectories))
                     .Where(f => IsPureStepsFile(Path.GetFileName(f)))
                     .Distinct()
                     .ToList();
-        
+
                 Log($"Found {stepsFiles.Count} step files");
-        
+
                 _pageFiles = stepsFiles
                     .GroupBy(f => Path.GetDirectoryName(f) ?? "")
                     .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
@@ -249,28 +269,26 @@ namespace BookViewer
                          .Select(x => x.Path)
                     )
                     .ToList();
-        
+
                 Log($"Sorted {_pageFiles.Count} page files");
-        
+
                 // ============================================================
                 // Build pages.xml mapping: folio ↔ step file
                 // ============================================================
                 _stepFileToIndex.Clear();
                 _folioToStepFile.Clear();
-        
+
                 for (int i = 0; i < _pageFiles.Count; i++)
                 {
-                    var name = Path.GetFileNameWithoutExtension(_pageFiles[i]); // "steps_1"
+                    var name = Path.GetFileNameWithoutExtension(_pageFiles[i]);
                     if (!_stepFileToIndex.ContainsKey(name))
                         _stepFileToIndex[name] = i;
                 }
-        
-                // pages.xml can live at root or in each step's folder
+
                 var pagesXmlCandidates = new List<string>();
                 var rootPagesXml = Path.Combine(folderPath, "pages.xml");
                 if (File.Exists(rootPagesXml)) pagesXmlCandidates.Add(rootPagesXml);
-        
-                // Also look for pages.xml next to each step file
+
                 foreach (var stepFile in _pageFiles)
                 {
                     var dir = Path.GetDirectoryName(stepFile) ?? "";
@@ -278,16 +296,25 @@ namespace BookViewer
                     if (File.Exists(localPages) && !pagesXmlCandidates.Contains(localPages))
                         pagesXmlCandidates.Add(localPages);
                 }
-        
+
                 foreach (var pagesXmlPath in pagesXmlCandidates)
                 {
                     try
                     {
                         var pagesContent = await File.ReadAllTextAsync(pagesXmlPath);
-                        // Strip any outer wrapper if present
+
+                        // pages.xml may be a bare sequence of <page> elements
+                        // without a wrapping root. Wrap it.
+                        var trimmed = pagesContent.TrimStart();
+                        if (!trimmed.StartsWith("<?xml") && !trimmed.StartsWith("<pages") &&
+                            !(trimmed.StartsWith("<") && trimmed.Contains("</pages>")))
+                        {
+                            pagesContent = $"<pages>{pagesContent}</pages>";
+                        }
+
                         var pagesDoc = new XmlDocument();
                         pagesDoc.LoadXml(pagesContent);
-        
+
                         var pageNodes = pagesDoc.SelectNodes("//page");
                         if (pageNodes != null)
                         {
@@ -298,7 +325,6 @@ namespace BookViewer
                                 if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
                                 {
                                     _folioToStepFile[folio] = file;
-                                    Log($"pages.xml [{Path.GetFileName(pagesXmlPath)}]: folio {folio} → {file}");
                                 }
                             }
                         }
@@ -308,11 +334,11 @@ namespace BookViewer
                         Log($"Error parsing {pagesXmlPath}: {ex.Message}");
                     }
                 }
-        
+
                 Log($"Built folio map: {_folioToStepFile.Count} entries");
-        
+
                 OnPagesLoaded?.Invoke(this, _pageFiles);
-        
+
                 if (_pageFiles.Count > 0)
                 {
                     _currentPageIndex = 0;
@@ -325,7 +351,7 @@ namespace BookViewer
                     OnStatusChanged?.Invoke(this, "No pages found in this book");
                     return false;
                 }
-        
+
                 OnStatusChanged?.Invoke(this, $"Loaded: {_bookTitle} ({_pageFiles.Count} pages)");
                 Log($"=== BOOK LOADED SUCCESSFULLY ===");
                 return true;
@@ -339,24 +365,6 @@ namespace BookViewer
             }
         }
 
-
-        public int GetIndexForStepFile(string stepFile)
-        {
-            if (string.IsNullOrEmpty(stepFile)) return -1;
-        
-            // strip .html if present
-            var name = Path.GetFileNameWithoutExtension(stepFile);
-        
-            if (_stepFileToIndex.TryGetValue(name, out int idx))
-                return idx;
-        
-            return -1;
-        }
-        
-                
-        // ============================================================
-        // DecryptBookFilesAsync — with per-file logging
-        // ============================================================
         private async Task DecryptBookFilesAsync(string folderPath)
         {
             try
@@ -856,7 +864,7 @@ namespace BookViewer
         }
 
         private string GetPlaceholderImage()
-            => "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%232d2d44'/%3E%3C/svg%3E";
+            => "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%23ffffff'/%3E%3C/svg%3E";
 
         private string ConvertImageToBase64HighQuality(string imagePath)
         {
@@ -906,25 +914,22 @@ namespace BookViewer
     <style>
         {fontCss}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        html, body {{ width: 100%; height: 100%; overflow: auto; background: #1a1a2e; }}
+        html, body {{ width: 100%; height: 100%; overflow: auto; background: #E8E8E8; }}
         body {{ display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; padding: 10px; }}
         .page-container {{
             position: relative;
             width: 1024px; height: 1344px;
             flex-shrink: 0;
-            background: #2d2d44;
-            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            background: #ffffff;
+            box-shadow: 0 0 20px rgba(0,0,0,0.15);
             overflow: hidden;
-            border-radius: 4px;
+            border-radius: 2px;
             transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
             transform-origin: top center;
         }}
         .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; z-index: 1; }}
         .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
         .content-overlay > * {{ position: absolute !important; }}
-        ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
-        ::-webkit-scrollbar-track {{ background: #1a1a2e; }}
-        ::-webkit-scrollbar-thumb {{ background: #2d2d44; border-radius: 3px; }}
     </style>
 </head>
 <body>
