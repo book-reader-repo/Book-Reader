@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="BookViewer.Views.PageGridView"
+             BackgroundColor="#1a1a2e">
+
+    <Grid RowDefinitions="*,Auto">
+
+        <ScrollView Grid.Row="0">
+            <CollectionView x:Name="PagesCollection" Margin="8"
+                            SelectionMode="Single"
+                            SelectionChanged="OnPageSelected">
+                <CollectionView.ItemsLayout>
+                    <GridItemsLayout Orientation="Vertical" Span="4"
+                                     HorizontalItemSpacing="6" VerticalItemSpacing="6"/>
+                </CollectionView.ItemsLayout>
+
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <VerticalStackLayout Spacing="2">
+                            <Frame Padding="0" CornerRadius="4" HasShadow="False"
+                                   WidthRequest="220" HeightRequest="290">
+                                <Image Source="{Binding ThumbnailSource}"
+                                       Aspect="AspectFill"/>
+                            </Frame>
+                            <Label Text="{Binding PageNumber}" 
+                                   FontSize="11" TextColor="#8899bb"
+                                   HorizontalTextAlignment="Center"/>
+                        </VerticalStackLayout>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </ScrollView>
+
+        <!-- Bottom bar -->
+        <Grid Grid.Row="1" BackgroundColor="#16213e" Padding="12,8"
+              ColumnDefinitions="*,Auto">
+            <Label Grid.Column="0" x:Name="StatusText" Text=""
+                   TextColor="#8899bb" FontSize="12" VerticalOptions="Center"/>
+            <Button Grid.Column="1" Text="✕ Close"
+                    Clicked="OnCloseClicked"
+                    BackgroundColor="#34495e" TextColor="White"/>
+        </Grid>
+    </Grid>
+</ContentPage>
