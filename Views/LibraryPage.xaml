@@ -4,46 +4,42 @@
              x:Class="BookViewer.Views.LibraryPage"
              BackgroundColor="#FFFFFF">
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,*,Auto">
 
         <!-- Top bar -->
-        <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="16,12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <Label Grid.Column="0" Text="Book Reader" 
-                   TextColor="White" FontSize="22" FontAttributes="Bold" 
+        <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="16,8"
+              ColumnDefinitions="Auto,*,Auto,Auto">
+            
+            <Image Grid.Column="0"
+                   Source="logo.png"
+                   HeightRequest="36"
+                   Aspect="AspectFit"
                    VerticalOptions="Center"/>
 
-            <HorizontalStackLayout Grid.Column="1" Spacing="12" Margin="40,0,0,0">
-                <Label Text="Main Page" TextColor="White" FontSize="14" VerticalOptions="Center"/>
-                <Label Text="Select Books Below" TextColor="White" FontSize="14" VerticalOptions="Center"/>
-            </HorizontalStackLayout>
-            <Button Grid.Column="3"
-                    Text="🔄 Refresh"
+            <Button Grid.Column="2"
+                    Text="🔄"
                     Clicked="OnRefreshClicked"
-                    BackgroundColor="#34495e"
+                    BackgroundColor="Transparent"
                     TextColor="White"
-                    Padding="12,6"
+                    FontSize="18"
+                    Padding="10,6"
                     Margin="0,0,8,0"
                     VerticalOptions="Center"/>
+
             <Button Grid.Column="3"
-                        Text="Download Books"
-                        Clicked="OnDownloadClicked"
-                        BackgroundColor="#27ae60"
-                        TextColor="White"
-                        Padding="12,6"
-                        Margin="0,0,12,0"
-                        VerticalOptions="Center"/>
+                    Text="⬇"
+                    Clicked="OnDownloadClicked"
+                    BackgroundColor="Transparent"
+                    TextColor="White"
+                    FontSize="18"
+                    Padding="10,6"
+                    VerticalOptions="Center"/>
         </Grid>
 
         <!-- Book grid -->
         <ScrollView Grid.Row="1">
-            <CollectionView x:Name="BooksCollection" Margin="24" 
+            <CollectionView x:Name="BooksCollection"
+                            Margin="24"
                             SelectionMode="Single"
                             SelectionChanged="OnBookSelected">
                 <CollectionView.ItemsLayout>
@@ -55,18 +51,19 @@
 
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <VerticalStackLayout WidthRequest="180" Spacing="12">
-                            <Frame Padding="0" CornerRadius="0"
-                                   WidthRequest="180" HeightRequest="180"
+                        <VerticalStackLayout WidthRequest="160" Spacing="10">
+                            <Frame Padding="0" CornerRadius="80"
+                                   WidthRequest="160" HeightRequest="160"
                                    HorizontalOptions="Center"
-                                   BackgroundColor="#FFFFFF"
-                                   HasShadow="False">
+                                   BackgroundColor="#B2DFDB"
+                                   HasShadow="False"
+                                   IsClippedToBounds="True">
                                 <Image Source="{Binding CoverImageSource}"
                                        Aspect="AspectFill"
-                                       WidthRequest="180" HeightRequest="180"/>
+                                       WidthRequest="160" HeightRequest="160"/>
                             </Frame>
                             <Label Text="{Binding DisplayName}"
-                                   FontSize="13"
+                                   FontSize="12"
                                    TextColor="#333"
                                    HorizontalTextAlignment="Center"
                                    LineBreakMode="TailTruncation"
@@ -77,21 +74,12 @@
             </CollectionView>
         </ScrollView>
 
-        <!-- Empty state -->
-        <VerticalStackLayout x:Name="EmptyState" Grid.Row="1"
-                             IsVisible="False"
-                             VerticalOptions="Center" HorizontalOptions="Center"
-                             Spacing="12">
-            <Label Text="📚" FontSize="60" HorizontalOptions="Center"/>
-            <Label Text="No books yet" FontSize="18" TextColor="#666" HorizontalOptions="Center"/>
-            <Label Text="Tap Download to add a book" FontSize="14" TextColor="#999" HorizontalOptions="Center"/>
-        </VerticalStackLayout>
-        <!-- NEW: Status bar -->
-        <Grid Grid.Row="2" BackgroundColor="#16213e" Padding="8,4">
-            <Label x:Name="StatusLabel" 
-                   Text="Ready"
-                   TextColor="#8899bb"
-                   FontSize="12"
+        <!-- Status bar -->
+        <Grid Grid.Row="2" BackgroundColor="#F5F5F5" Padding="12,6">
+            <Label x:Name="StatusLabel"
+                   Text=""
+                   TextColor="#666"
+                   FontSize="11"
                    LineBreakMode="TailTruncation"/>
         </Grid>
     </Grid>
