@@ -7,7 +7,7 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*">
 
         <!-- Pink header -->
-        <Grid Grid.Row="0" BackgroundColor="#E91E63" Padding="12,14">
+        <Grid Grid.Row="0" BackgroundColor="#2196F3" Padding="12,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
