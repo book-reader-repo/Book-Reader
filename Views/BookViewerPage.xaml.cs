@@ -13,6 +13,7 @@ namespace BookViewer.Views;
 
 public partial class BookViewerPage : ContentPage
 {
+    private bool _bookLoaded = false;
     private readonly BookService _bookService = new();
     private bool _showTeacherNotes = false;
     private bool _showStudentAnswers = false;
@@ -166,6 +167,11 @@ public partial class BookViewerPage : ContentPage
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
+                if (startPage > 1)
+                {
+                    var idx = Math.Min(startPage - 1, _bookService.PageFiles.Count - 1);
+                    await _bookService.LoadPageAsync(idx);
+                }
             }
             else
             {
@@ -716,19 +722,23 @@ public partial class BookViewerPage : ContentPage
             await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
         }
     }
-
+    
     private async void OnGridClicked(object sender, EventArgs e)
     {
         if (_bookService.PageFiles.Count == 0) return;
-
+    
         var gridPage = new PageGridView(
             _bookService.PageFiles,
             _bookService.CurrentPageIndex,
             (pageIndex) =>
             {
-                _ = _bookService.LoadPageAsync(pageIndex);
+                // Called after grid pops. Just load the requested page in-place.
+                Dispatcher.Dispatch(async () =>
+                {
+                    await _bookService.LoadPageAsync(pageIndex);
+                });
             });
-
+    
         await Navigation.PushAsync(gridPage);
     }
 
