@@ -15,16 +15,22 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Label Grid.Column="0" Text="Oxford iSolution" 
+            <Label Grid.Column="0" Text="Book Viewer" 
                    TextColor="White" FontSize="22" FontAttributes="Bold" 
                    VerticalOptions="Center"/>
 
             <HorizontalStackLayout Grid.Column="1" Spacing="12" Margin="40,0,0,0">
-                <Label Text="ENGLISH ▾" TextColor="White" FontSize="14" VerticalOptions="Center"/>
-                <Label Text="S1 ▾" TextColor="White" FontSize="14" VerticalOptions="Center"/>
+                <Label Text="Main Page" TextColor="White" FontSize="14" VerticalOptions="Center"/>
+                <Label Text="Select Books Below" TextColor="White" FontSize="14" VerticalOptions="Center"/>
             </HorizontalStackLayout>
-
-            <Label Grid.Column="3" Text="☰" TextColor="White" FontSize="24" VerticalOptions="Center"/>
+            <Button Grid.Column="3"
+                        Text="Download Books"
+                        Clicked="OnDownloadClicked"
+                        BackgroundColor="#27ae60"
+                        TextColor="White"
+                        Padding="12,6"
+                        Margin="0,0,12,0"
+                        VerticalOptions="Center"/>
         </Grid>
 
         <!-- Book grid -->
