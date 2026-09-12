@@ -32,12 +32,58 @@ namespace BookViewer.Views
             _bookFolder = bookFolder;
             _bookData = bookData;
             _unit = unit;
-
+        
             UnitNumberLabel.Text = ExtractUnitNumber(unit.Title);
             UnitTitleLabel.Text = ExtractUnitTitle(unit.Title);
-
+        
             LoadSections();
             LoadResources();
+            LoadUnitBanner();   // NEW
+        }
+        private void LoadUnitBanner()
+        {
+            try
+            {
+                // unit.Id is like "unitUID_18657" so the file is unitUID_18657.png
+                // Look in [book_dir]/units/ first, then search recursively
+                string bannerPath = null;
+        
+                var unitsDir = Path.Combine(_bookFolder, "units");
+                if (Directory.Exists(unitsDir))
+                {
+                    var candidate = Path.Combine(unitsDir, $"{_unit.Id}.png");
+                    if (File.Exists(candidate)) bannerPath = candidate;
+                }
+        
+                if (bannerPath == null)
+                {
+                    // Search all subfolders in case structure differs
+                    var matches = Directory.GetFiles(_bookFolder, $"{_unit.Id}.png", SearchOption.AllDirectories);
+                    if (matches.Length > 0) bannerPath = matches[0];
+                }
+        
+                if (!string.IsNullOrEmpty(bannerPath) && File.Exists(bannerPath))
+                {
+                    UnitBannerImage.Source = ImageSource.FromFile(bannerPath);
+                    UnitBannerImage.IsVisible = true;
+                    UnitHeroFallback.IsVisible = false;
+                }
+                else
+                {
+                    UnitBannerImage.IsVisible = false;
+                    UnitHeroFallback.IsVisible = true;
+                    UnitNumberLabel.Text = ExtractUnitNumber(_unit.Title);
+                    UnitTitleLabel.Text = ExtractUnitTitle(_unit.Title);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading unit banner: {ex.Message}");
+                UnitBannerImage.IsVisible = false;
+                UnitHeroFallback.IsVisible = true;
+                UnitNumberLabel.Text = ExtractUnitNumber(_unit.Title);
+                UnitTitleLabel.Text = ExtractUnitTitle(_unit.Title);
+            }
         }
 
         private string ExtractUnitNumber(string title)
