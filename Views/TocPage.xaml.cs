@@ -16,7 +16,7 @@ namespace BookViewer.Views
             _bookFolder = bookFolder;
             _bookData = bookData;
 
-            TitleLabel.Text = "ENGLISH";
+            TitleLabel.Text = "Back";
             BookTitleLabel.Text = bookData.Title;
 
             var units = new List<UnitData>(bookData.Units);
