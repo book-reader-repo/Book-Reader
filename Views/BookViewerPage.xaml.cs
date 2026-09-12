@@ -735,15 +735,41 @@ public partial class BookViewerPage : ContentPage
             await DisplayAlert("Info", "Please open a book first.", "OK");
             return;
         }
-
+    
         var confirm = await DisplayAlert("Confirm Decrypt",
             $"This will decrypt all encrypted files in:\n{_bookService.CurrentBookPath}\n\nContinue?",
             "Yes", "No");
-
-        if (confirm)
+    
+        if (!confirm) return;
+    
+        Log("=== DECRYPT START ===");
+        StatusLabel.Text = "Decrypting book files...";
+    
+        // Hook into status changes so decryption progress shows in the status bar
+        var progressHandler = new EventHandler<string>((s, msg) =>
+        {
+            Device.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
+            Log($"Decrypt: {msg}");
+        });
+        _bookService.OnStatusChanged += progressHandler;
+    
+        try
         {
             await _bookService.DecryptBookAsync();
+            Log("=== DECRYPT COMPLETE ===");
+            StatusLabel.Text = "Decryption complete!";
+    
             await _bookService.LoadBookAsync(_bookService.CurrentBookPath);
+            await DisplayAlert("Success", "Decryption complete!", "OK");
+        }
+        catch (Exception ex)
+        {
+            Log($"Decrypt failed: {ex.Message}");
+            await DisplayAlert("Error", $"Decryption failed: {ex.Message}", "OK");
+        }
+        finally
+        {
+            _bookService.OnStatusChanged -= progressHandler;
         }
     }
 
