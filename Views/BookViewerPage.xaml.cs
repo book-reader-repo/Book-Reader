@@ -13,7 +13,6 @@ namespace BookViewer.Views;
 
 public partial class BookViewerPage : ContentPage
 {
-    private bool _bookLoaded = false;
     private readonly BookService _bookService = new();
     private bool _showTeacherNotes = false;
     private bool _showStudentAnswers = false;
@@ -21,6 +20,8 @@ public partial class BookViewerPage : ContentPage
     private string _currentTeacherHtml = "";
     private string _currentStudentHtml = "";
     private string _currentViewMode = "content";
+    private bool _bookLoaded = false;
+    private int _startFolio = 1;
 
     private static readonly object _logLock = new object();
     private static string _logFilePath = null;
@@ -56,29 +57,28 @@ public partial class BookViewerPage : ContentPage
 
             if (message.Length < 80)
             {
-                Device.BeginInvokeOnMainThread(() => StatusLabel.Text = message);
+                Dispatcher.Dispatch(() => StatusLabel.Text = message);
             }
             else
             {
-                Device.BeginInvokeOnMainThread(() => StatusLabel.Text = message.Substring(0, 77) + "...");
+                Dispatcher.Dispatch(() => StatusLabel.Text = message.Substring(0, 77) + "...");
             }
         }
         catch
         {
         }
     }
-    private async void OnBackClicked(object sender, EventArgs e)
-    {
-        await Navigation.PopAsync();
-    }
 
     public BookViewerPage(string bookFolder, int startFolio)
     {
         InitializeComponent();
         NavigationPage.SetHasNavigationBar(this, false);
+
+        _startFolio = startFolio;
+
         Log("=== BOOK VIEWER PAGE INITIALIZED ===");
         Log($"Book folder: {bookFolder}");
-        Log($"Start page: {startPage}");
+        Log($"Start folio: {_startFolio}");
         Log($"Log file: {GetLogFilePath()}");
 
         ContentWebView.BackgroundColor = Colors.Transparent;
@@ -86,9 +86,14 @@ public partial class BookViewerPage : ContentPage
         TeacherWebView.BackgroundColor = Colors.Transparent;
         StudentWebView.BackgroundColor = Colors.Transparent;
 
+        _bookService.OnPagesLoaded += (s, pages) =>
+        {
+            Dispatcher.Dispatch(() => UpdateUI());
+        };
+
         _bookService.OnPageChanged += (s, content) =>
         {
-            Device.BeginInvokeOnMainThread(() =>
+            Dispatcher.Dispatch(() =>
             {
                 _currentContentHtml = content;
                 LoadTeacherView();
@@ -99,10 +104,10 @@ public partial class BookViewerPage : ContentPage
         };
 
         _bookService.OnStatusChanged += (s, msg) =>
-            Device.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
+            Dispatcher.Dispatch(() => StatusLabel.Text = msg);
 
         _bookService.OnBookLoaded += (s, title) =>
-            Device.BeginInvokeOnMainThread(() => BookTitleLabel.Text = title);
+            Dispatcher.Dispatch(() => BookTitleLabel.Text = title);
 
         _bookService.OnTwoPageSpreadToggled += (s, enabled) =>
         {
@@ -122,35 +127,18 @@ public partial class BookViewerPage : ContentPage
 
         _bookService.OnSideBySideToggled += (s, enabled) =>
         {
-            Device.BeginInvokeOnMainThread(() => UpdateDisplay());
+            Dispatcher.Dispatch(() => UpdateDisplay());
         };
 
         _bookService.OnZoomChanged += (s, zoom) =>
-            Device.BeginInvokeOnMainThread(() => ZoomLabel.Text = $"{zoom:F1}x");
+            Dispatcher.Dispatch(() => ZoomLabel.Text = $"{zoom:F1}x");
 
-        // Load the book, and after pages are loaded, jump to start page
-        _bookService.OnPagesLoaded += async (s, pages) =>
-        {
-            Device.BeginInvokeOnMainThread(async () =>
-            {
-                if (startPage > 1 && pages.Count > 0)
-                {
-                    int targetIndex = Math.Min(startPage - 1, pages.Count - 1);
-                    if (targetIndex > 0)
-                    {
-                        Log($"Jumping to start page index {targetIndex}");
-                        await _bookService.LoadPageAsync(targetIndex);
-                    }
-                }
-            });
-        };
-
-        // Kick off the load
         Loaded += async (s, e) =>
         {
             if (_bookLoaded) return;
             _bookLoaded = true;
-        
+
+            Log("Loaded event fired → calling LoadBookAsync");
             var success = await _bookService.LoadBookAsync(bookFolder);
             if (success)
             {
@@ -161,31 +149,25 @@ public partial class BookViewerPage : ContentPage
                 ViewModeButton.IsEnabled = true;
                 ExportPdfButton.IsEnabled = true;
                 GridButton.IsEnabled = true;
-        
+
                 _currentViewMode = "content";
                 _showTeacherNotes = false;
                 _showStudentAnswers = false;
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
-        
-                if (startPage > 0)
+
+                if (_startFolio > 0)
                 {
-                    // Try folio → step file lookup
-                    int idx = -1;
-                    if (_bookService.FolioToStepFile.TryGetValue(startPage, out var stepFile))
+                    int idx = _bookService.GetIndexForFolio(_startFolio);
+                    Log($"Folio {_startFolio} → index {idx}");
+
+                    if (idx < 0 && _startFolio <= _bookService.PageFiles.Count)
                     {
-                        idx = _bookService.GetIndexForStepFile(stepFile);
-                        Log($"Folio {startPage} → {stepFile} → index {idx}");
+                        idx = _startFolio - 1;
+                        Log($"Fallback: treating {_startFolio} as index {idx}");
                     }
-        
-                    // Fallback: treat as direct index
-                    if (idx < 0 && startPage <= _bookService.PageFiles.Count)
-                    {
-                        idx = startPage - 1;
-                        Log($"Fallback: treating {startPage} as index {idx}");
-                    }
-        
+
                     if (idx >= 0 && idx < _bookService.PageFiles.Count)
                     {
                         await _bookService.LoadPageAsync(idx);
@@ -325,7 +307,7 @@ public partial class BookViewerPage : ContentPage
                     width: 100%;
                     height: 100%;
                     overflow: auto;
-                    background: #1a1a2e;
+                    background: #E8E8E8;
                 }}
                 body {{
                     display: flex;
@@ -339,10 +321,10 @@ public partial class BookViewerPage : ContentPage
                     width: 1024px;
                     height: 1344px;
                     flex-shrink: 0;
-                    background: #2d2d44;
-                    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+                    background: #ffffff;
+                    box-shadow: 0 0 20px rgba(0,0,0,0.15);
                     overflow: hidden;
-                    border-radius: 4px;
+                    border-radius: 2px;
                     transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
                     transform-origin: top center;
                 }}
@@ -387,9 +369,6 @@ public partial class BookViewerPage : ContentPage
                     border-radius: 4px;
                     padding: 3px;
                 }}
-                ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
-                ::-webkit-scrollbar-track {{ background: #1a1a2e; }}
-                ::-webkit-scrollbar-thumb {{ background: #2d2d44; border-radius: 3px; }}
             </style>
         </head>
         <body>
@@ -425,7 +404,7 @@ public partial class BookViewerPage : ContentPage
                     width: 100%;
                     height: 100%;
                     overflow: auto;
-                    background: #1a1a2e;
+                    background: #E8E8E8;
                 }}
                 body {{
                     display: flex;
@@ -439,10 +418,10 @@ public partial class BookViewerPage : ContentPage
                     width: 1024px;
                     height: 1344px;
                     flex-shrink: 0;
-                    background: #2d2d44;
-                    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+                    background: #ffffff;
+                    box-shadow: 0 0 20px rgba(0,0,0,0.15);
                     overflow: hidden;
-                    border-radius: 4px;
+                    border-radius: 2px;
                     transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
                     transform-origin: top center;
                 }}
@@ -469,9 +448,6 @@ public partial class BookViewerPage : ContentPage
                     pointer-events: none;
                 }}
                 .base-content > * {{ position: absolute !important; }}
-                ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
-                ::-webkit-scrollbar-track {{ background: #1a1a2e; }}
-                ::-webkit-scrollbar-thumb {{ background: #2d2d44; border-radius: 3px; }}
             </style>
         </head>
         <body>
@@ -487,7 +463,7 @@ public partial class BookViewerPage : ContentPage
 
     private string GetPlaceholderImage()
     {
-        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%232d2d44'/%3E%3C/svg%3E";
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%23ffffff'/%3E%3C/svg%3E";
     }
 
     private void UpdateDisplay()
@@ -507,7 +483,7 @@ public partial class BookViewerPage : ContentPage
             }
             else
             {
-                NextPageWebView.Source = new HtmlWebViewSource { Html = "<html><body style='background:#2d2d44;'></body></html>" };
+                NextPageWebView.Source = new HtmlWebViewSource { Html = "<html><body style='background:#E8E8E8;'></body></html>" };
             }
             NextPageWebView.IsVisible = true;
 
@@ -557,7 +533,7 @@ public partial class BookViewerPage : ContentPage
             UpdateViewModeButton();
         }
     }
-    
+
     private void UpdateViewModeButton()
     {
         string text = _currentViewMode switch
@@ -568,21 +544,6 @@ public partial class BookViewerPage : ContentPage
             _ => "Content"
         };
         ViewModeButton.Text = text;
-    
-        // Highlight the active mode button
-        TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
-            ? Color.FromArgb("#8BC34A")
-            : Color.FromArgb("#E0E0E0");
-        TeacherNotesButton.TextColor = _currentViewMode == "teacher"
-            ? Colors.White
-            : Color.FromArgb("#333333");
-    
-        StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
-            ? Color.FromArgb("#8BC34A")
-            : Color.FromArgb("#E0E0E0");
-        StudentAnswersButton.TextColor = _currentViewMode == "student"
-            ? Colors.White
-            : Color.FromArgb("#333333");
     }
 
     private void OnViewModeClicked(object sender, EventArgs e)
@@ -633,10 +594,11 @@ public partial class BookViewerPage : ContentPage
             StatusLabel.Text = "No student answers available for this page";
         }
     }
-    
+
     private void UpdateTeacherButton()
     {
         if (TeacherNotesButton == null) return;
+
         TeacherNotesButton.Text = _currentViewMode == "teacher" ? "Hide Notes" : "Notes";
         TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
             ? Color.FromArgb("#8BC34A")
@@ -645,10 +607,11 @@ public partial class BookViewerPage : ContentPage
             ? Colors.White
             : Color.FromArgb("#333333");
     }
-    
+
     private void UpdateStudentButton()
     {
         if (StudentAnswersButton == null) return;
+
         StudentAnswersButton.Text = _currentViewMode == "student" ? "Hide Answers" : "Answers";
         StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
             ? Color.FromArgb("#8BC34A")
@@ -656,6 +619,11 @@ public partial class BookViewerPage : ContentPage
         StudentAnswersButton.TextColor = _currentViewMode == "student"
             ? Colors.White
             : Color.FromArgb("#333333");
+    }
+
+    private async void OnBackClicked(object sender, EventArgs e)
+    {
+        await Navigation.PopAsync();
     }
 
     private async void OnExportPdfClicked(object sender, EventArgs e)
@@ -711,7 +679,7 @@ public partial class BookViewerPage : ContentPage
             };
 
             pdfService.OnProgress += (s, progress) =>
-                Device.BeginInvokeOnMainThread(() => StatusLabel.Text = $"Exporting PDF... {progress}%");
+                Dispatcher.Dispatch(() => StatusLabel.Text = $"Exporting PDF... {progress}%");
 
             var tcs = new TaskCompletionSource<string>();
             pdfService.OnComplete += (s, path) => tcs.TrySetResult(path);
@@ -743,23 +711,22 @@ public partial class BookViewerPage : ContentPage
             await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
         }
     }
-    
+
     private async void OnGridClicked(object sender, EventArgs e)
     {
         if (_bookService.PageFiles.Count == 0) return;
-    
+
         var gridPage = new PageGridView(
             _bookService.PageFiles,
             _bookService.CurrentPageIndex,
             (pageIndex) =>
             {
-                // Called after grid pops. Just load the requested page in-place.
                 Dispatcher.Dispatch(async () =>
                 {
                     await _bookService.LoadPageAsync(pageIndex);
                 });
             });
-    
+
         await Navigation.PushAsync(gridPage);
     }
 
@@ -770,41 +737,15 @@ public partial class BookViewerPage : ContentPage
             await DisplayAlert("Info", "Please open a book first.", "OK");
             return;
         }
-    
+
         var confirm = await DisplayAlert("Confirm Decrypt",
             $"This will decrypt all encrypted files in:\n{_bookService.CurrentBookPath}\n\nContinue?",
             "Yes", "No");
-    
-        if (!confirm) return;
-    
-        Log("=== DECRYPT START ===");
-        StatusLabel.Text = "Decrypting book files...";
-    
-        // Hook into status changes so decryption progress shows in the status bar
-        var progressHandler = new EventHandler<string>((s, msg) =>
-        {
-            Device.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
-            Log($"Decrypt: {msg}");
-        });
-        _bookService.OnStatusChanged += progressHandler;
-    
-        try
+
+        if (confirm)
         {
             await _bookService.DecryptBookAsync();
-            Log("=== DECRYPT COMPLETE ===");
-            StatusLabel.Text = "Decryption complete!";
-    
             await _bookService.LoadBookAsync(_bookService.CurrentBookPath);
-            await DisplayAlert("Success", "Decryption complete!", "OK");
-        }
-        catch (Exception ex)
-        {
-            Log($"Decrypt failed: {ex.Message}");
-            await DisplayAlert("Error", $"Decryption failed: {ex.Message}", "OK");
-        }
-        finally
-        {
-            _bookService.OnStatusChanged -= progressHandler;
         }
     }
 
