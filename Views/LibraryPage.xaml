@@ -52,10 +52,10 @@
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
                         <VerticalStackLayout WidthRequest="160" Spacing="10">
-                            <Frame Padding="0" CornerRadius="80"
+                            <Frame Padding="0" CornerRadius="20"
                                    WidthRequest="160" HeightRequest="160"
                                    HorizontalOptions="Center"
-                                   BackgroundColor="#B2DFDB"
+                                   BackgroundColor="#FFFFFF"
                                    HasShadow="False"
                                    IsClippedToBounds="True">
                                 <Image Source="{Binding CoverImageSource}"
