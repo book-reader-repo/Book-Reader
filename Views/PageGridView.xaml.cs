@@ -36,40 +36,42 @@ namespace BookViewer.Views
             {
                 var f = _pageFiles[i];
                 var stepNum = ParseStepIndex(Path.GetFileName(f));
-
+        
                 var thumb = new PageThumbnail
                 {
                     Index = i,
                     PageNumber = stepNum >= 0 ? stepNum.ToString() : (i + 1).ToString(),
                     HtmlPath = f
                 };
-
-                // Try to find a pre-rendered thumbnail image
+        
+                // Thumbnails live in [folder-of-steps_x.html]/thumbs/steps_x.jpg
                 var dir = Path.GetDirectoryName(f) ?? "";
-                var imagesDir = Path.Combine(dir, "images");
-                if (Directory.Exists(imagesDir) && stepNum >= 0)
+                var thumbsDir = Path.Combine(dir, "thumbs");
+        
+                if (Directory.Exists(thumbsDir) && stepNum >= 0)
                 {
-                    var imgPath = Path.Combine(imagesDir, $"steps_{stepNum}.jpg");
-                    if (!File.Exists(imgPath))
-                        imgPath = Path.Combine(imagesDir, $"steps_{stepNum}.png");
-
-                    if (File.Exists(imgPath))
-                        thumb.ThumbnailSource = ImageSource.FromFile(imgPath);
-                    else
-                        thumb.ThumbnailSource = "appicon.png";
+                    var jpg = Path.Combine(thumbsDir, $"steps_{stepNum}.jpg");
+                    var png = Path.Combine(thumbsDir, $"steps_{stepNum}.png");
+                    var jpgAlt = Path.Combine(thumbsDir, $"step_{stepNum}.jpg");
+                    var pngAlt = Path.Combine(thumbsDir, $"step_{stepNum}.png");
+        
+                    if (File.Exists(jpg)) thumb.ThumbnailSource = ImageSource.FromFile(jpg);
+                    else if (File.Exists(png)) thumb.ThumbnailSource = ImageSource.FromFile(png);
+                    else if (File.Exists(jpgAlt)) thumb.ThumbnailSource = ImageSource.FromFile(jpgAlt);
+                    else if (File.Exists(pngAlt)) thumb.ThumbnailSource = ImageSource.FromFile(pngAlt);
+                    else thumb.ThumbnailSource = "appicon.png";
                 }
                 else
                 {
                     thumb.ThumbnailSource = "appicon.png";
                 }
-
+        
                 _pages.Add(thumb);
             }
-
+        
             PagesCollection.ItemsSource = _pages;
-            StatusText.Text = $"{_pages.Count} pages";
+            StatusText.Text = $"{_pages.Count}";
         }
-
         private int ParseStepIndex(string fileName)
         {
             var m = System.Text.RegularExpressions.Regex.Match(
