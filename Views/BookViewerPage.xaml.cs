@@ -70,6 +70,7 @@ public partial class BookViewerPage : ContentPage
     public BookViewerPage(string bookFolder, int startPage)
     {
         InitializeComponent();
+        NavigationPage.SetHasNavigationBar(this, false);
         Log("=== BOOK VIEWER PAGE INITIALIZED ===");
         Log($"Book folder: {bookFolder}");
         Log($"Start page: {startPage}");
