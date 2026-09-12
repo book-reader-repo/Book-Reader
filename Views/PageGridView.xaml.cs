@@ -33,11 +33,11 @@ namespace BookViewer.Views
         {
             if ((sender as BindableObject)?.BindingContext is PageThumbnail page)
             {
-                _onPageSelected?.Invoke(page.Index);
-                await Navigation.PopAsync();
+                var targetIndex = page.Index;
+                await Navigation.PopAsync();       // pop first
+                _onPageSelected?.Invoke(targetIndex);  // then tell viewer to load
             }
         }
-
         private async void LoadThumbnails(int currentIndex)
         {
             for (int i = 0; i < _pageFiles.Count; i++)
