@@ -25,6 +25,7 @@ namespace BookViewer.Views
         public LibraryPage()
         {
             InitializeComponent();
+            NavigationPage.SetHasNavigationBar(this, false);
             LoadBooks();
         }
 
