@@ -34,7 +34,44 @@ namespace BookViewer.Views
             base.OnAppearing();
             LoadBooks();
         }
+
+
+        private static readonly object _logLock = new object();
+        private static string _logFilePath = null;
         
+        private string GetLogFilePath()
+        {
+            if (_logFilePath == null)
+            {
+                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                string logFolder = Path.Combine(documentsPath, "BookViewer");
+                if (!Directory.Exists(logFolder))
+                    Directory.CreateDirectory(logFolder);
+                _logFilePath = Path.Combine(logFolder, $"LibraryPage_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+            }
+            return _logFilePath;
+        }
+        
+        private void Log(string message)
+        {
+            try
+            {
+                string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
+                lock (_logLock)
+                {
+                    File.AppendAllText(GetLogFilePath(), logMessage + Environment.NewLine);
+                }
+                System.Diagnostics.Debug.WriteLine(logMessage);
+        
+                Dispatcher.Dispatch(() =>
+                {
+                    StatusLabel.Text = message.Length < 100 ? message : message.Substring(0, 97) + "...";
+                });
+            }
+            catch { }
+        }
+
+
         private async void OnDownloadClicked(object sender, EventArgs e)
         {
             try
@@ -49,30 +86,31 @@ namespace BookViewer.Views
                     return;
                 }
         
+                Log($"=== DOWNLOAD START: book {bookNumber} ===");
+        
                 var downloadService = new Services.DownloadService();
                 var tcs = new TaskCompletionSource<bool>();
         
                 downloadService.OnProgress += (s, progress) =>
                 {
-                    Device.BeginInvokeOnMainThread(() =>
-                    {
-                        // Optional: show progress
-                    });
+                    Log($"Download progress: {progress}%");
                 };
         
                 downloadService.OnComplete += (s, bookPath) =>
                 {
-                    Device.BeginInvokeOnMainThread(async () =>
+                    Log($"Download complete: {bookPath}");
+                    Dispatcher.Dispatch(async () =>
                     {
                         await DisplayAlert("Success", $"Book {bookNumber} downloaded to:\n{bookPath}", "OK");
-                        LoadBooks(); // refresh the grid
+                        LoadBooks();
                         tcs.SetResult(true);
                     });
                 };
         
                 downloadService.OnError += (s, error) =>
                 {
-                    Device.BeginInvokeOnMainThread(async () =>
+                    Log($"Download error: {error}");
+                    Dispatcher.Dispatch(async () =>
                     {
                         await DisplayAlert("Error", $"Download failed: {error}", "OK");
                         tcs.SetResult(false);
@@ -81,9 +119,12 @@ namespace BookViewer.Views
         
                 await downloadService.DownloadBookAsync(bookNumber);
                 await tcs.Task;
+        
+                Log($"=== DOWNLOAD END: book {bookNumber} ===");
             }
             catch (Exception ex)
             {
+                Log($"Download exception: {ex.Message}");
                 await DisplayAlert("Error", ex.Message, "OK");
             }
         }
