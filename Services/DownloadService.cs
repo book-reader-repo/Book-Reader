@@ -1,3 +1,4 @@
+using BookViewer;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,11 +15,15 @@ namespace BookViewer.Services
     {
         private const string BaseUrl = "https://isolution.oupchina.com.hk";
         private readonly HttpClient _httpClient;
+        private readonly DecryptionService _decryptionService = new();
         private bool _isDownloading;
 
         public event EventHandler<int> OnProgress;
         public event EventHandler<string> OnComplete;
         public event EventHandler<string> OnError;
+
+        private static readonly object _logLock = new object();
+        private static string _logFilePath = null;
 
         public DownloadService()
         {
@@ -30,6 +35,41 @@ namespace BookViewer.Services
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "BookViewer/1.0");
         }
 
+        private string GetLogFilePath()
+        {
+            if (_logFilePath == null)
+            {
+                try
+                {
+                    string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                    string logFolder = Path.Combine(documentsPath, "BookViewer");
+                    Directory.CreateDirectory(logFolder);
+                    _logFilePath = Path.Combine(logFolder, $"DownloadService_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                }
+                catch
+                {
+                    _logFilePath = Path.Combine(Path.GetTempPath(), $"DownloadService_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                }
+            }
+            return _logFilePath;
+        }
+
+        private void Log(string message)
+        {
+            try
+            {
+                string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
+                lock (_logLock)
+                {
+                    File.AppendAllText(GetLogFilePath(), logMessage + Environment.NewLine);
+                }
+                System.Diagnostics.Debug.WriteLine($"[DownloadService] {logMessage}");
+            }
+            catch
+            {
+            }
+        }
+
         public async Task DownloadBookAsync(int bookNumber)
         {
             if (_isDownloading)
@@ -37,26 +77,25 @@ namespace BookViewer.Services
                 OnError?.Invoke(this, "Download already in progress");
                 return;
             }
-        
+
             _isDownloading = true;
-        
+
             try
             {
                 Log($"=== DOWNLOAD BOOK {bookNumber} START ===");
                 OnProgress?.Invoke(this, 0);
-        
-                // Books directory
+
                 var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
                 var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
                 Directory.CreateDirectory(booksDir);
                 Log($"Books directory: {booksDir}");
-        
+
                 var tempDir = Path.Combine(booksDir, "temp_" + Guid.NewGuid().ToString().Substring(0, 8));
                 Directory.CreateDirectory(tempDir);
                 Log($"Temp directory: {tempDir}");
-        
+
                 var finalBookDir = Path.Combine(booksDir, $"book_{bookNumber}");
-        
+
                 if (Directory.Exists(finalBookDir))
                 {
                     Log($"Book {bookNumber} already exists at: {finalBookDir}");
@@ -64,86 +103,102 @@ namespace BookViewer.Services
                     _isDownloading = false;
                     return;
                 }
-        
+
                 var urlPatterns = new[]
                 {
                     $"ebook_distribute/V3_otf/{bookNumber}/P02/book_{bookNumber}_P02.zip",
                     $"ebook_distribute/V3_otf/{bookNumber}/book_{bookNumber}.zip",
                 };
-        
+
                 bool bookDownloaded = false;
                 string bookExtractDir = null;
                 string parentDir = null;
-        
+
                 for (int i = 0; i < urlPatterns.Length; i++)
                 {
                     if (bookDownloaded) break;
-        
+
                     var pattern = urlPatterns[i];
                     var url = $"{BaseUrl}/{pattern}";
                     var savePath = Path.Combine(tempDir, $"book_{bookNumber}.zip");
-        
+
                     Log($"Trying URL [{i + 1}/{urlPatterns.Length}]: {url}");
                     OnProgress?.Invoke(this, 10 + (i * 20));
-        
+
                     if (await DownloadFileAsync(url, savePath))
                     {
-                        Log($"Downloaded: {savePath} ({new FileInfo(savePath).Length} bytes)");
-        
+                        var size = new FileInfo(savePath).Length;
+                        Log($"Downloaded: {savePath} ({size} bytes)");
+
+                        if (size < 1000)
+                        {
+                            Log($"File too small, likely not a valid zip. Skipping.");
+                            try { File.Delete(savePath); } catch { }
+                            continue;
+                        }
+
                         if (await VerifyZipAsync(savePath))
                         {
                             Log("Zip signature verified");
-        
+
                             bookExtractDir = Path.Combine(tempDir, "extracted");
                             Directory.CreateDirectory(bookExtractDir);
-        
+
                             OnProgress?.Invoke(this, 30);
                             Log("Extracting main book zip...");
                             await ExtractZipAsync(savePath, bookExtractDir);
                             Log("Main book zip extracted");
-        
-                            File.Delete(savePath);
+
+                            try { File.Delete(savePath); } catch { }
                             bookDownloaded = true;
-        
+
                             parentDir = pattern.Contains("/P02/")
                                 ? pattern.Split("/P02/")[0] + "/P02"
                                 : pattern.Substring(0, pattern.LastIndexOf('/'));
                             Log($"Parent dir resolved: {parentDir}");
-        
+
                             // Resource PC
                             OnProgress?.Invoke(this, 50);
                             Log("Downloading resource PC zip...");
                             await DownloadAndExtractResourcePCAsync(bookNumber, parentDir, bookExtractDir);
-        
+
                             // Units
-                            OnProgress?.Invoke(this, 70);
+                            OnProgress?.Invoke(this, 65);
                             var unitUids = FindUnitUids(bookExtractDir);
                             Log($"Found {unitUids.Count} unit UIDs: [{string.Join(", ", unitUids)}]");
-        
+
                             if (unitUids.Any())
                             {
                                 Log("Downloading unit zips...");
                                 await DownloadAndExtractUnitsAsync(unitUids, parentDir, bookNumber, bookExtractDir);
                             }
-                            else
-                            {
-                                Log("No units to download");
-                            }
-        
+
                             // Copy to final
-                            OnProgress?.Invoke(this, 85);
+                            OnProgress?.Invoke(this, 80);
                             Log($"Copying to final directory: {finalBookDir}");
                             Directory.CreateDirectory(finalBookDir);
                             CopyDirectory(bookExtractDir, finalBookDir);
-        
+
+                            // Small delay to let filesystem settle
+                            await Task.Delay(200);
+
+                            // ============================================================
+                            // DECRYPT EVERYTHING NOW
+                            // ============================================================
+                            OnProgress?.Invoke(this, 88);
+                            Log("=== DECRYPTING DOWNLOADED BOOK ===");
+                            await DecryptBookFolderAsync(finalBookDir, bookNumber.ToString());
+                            Log("=== DECRYPTION COMPLETE ===");
+
                             // Cover
+                            OnProgress?.Invoke(this, 95);
                             Log("Locating/copying cover image...");
                             await CopyBookCoverAsync(bookNumber, finalBookDir);
-        
+
                             // Cleanup
                             Log("Cleaning up temp directory...");
                             try { Directory.Delete(tempDir, true); } catch { }
-        
+
                             OnProgress?.Invoke(this, 100);
                             Log($"=== DOWNLOAD BOOK {bookNumber} SUCCESS ===");
                             OnComplete?.Invoke(this, finalBookDir);
@@ -161,7 +216,7 @@ namespace BookViewer.Services
                         Log($"Download FAILED: {url}");
                     }
                 }
-        
+
                 if (!bookDownloaded)
                 {
                     Log($"=== DOWNLOAD BOOK {bookNumber} FAILED (all URLs exhausted) ===");
@@ -179,7 +234,96 @@ namespace BookViewer.Services
                 _isDownloading = false;
             }
         }
-        
+
+        private async Task DecryptBookFolderAsync(string bookFolder, string bookUid)
+        {
+            try
+            {
+                var htmlFiles = Directory.GetFiles(bookFolder, "*.html", SearchOption.AllDirectories).ToList();
+                var xmlFiles = Directory.GetFiles(bookFolder, "*.xml", SearchOption.AllDirectories).ToList();
+                var htmFiles = Directory.GetFiles(bookFolder, "*.htm", SearchOption.AllDirectories).ToList();
+
+                Log($"Decrypt: {htmlFiles.Count} html, {xmlFiles.Count} xml, {htmFiles.Count} htm");
+
+                // 1) Decrypt book.xml first (uses book UID as key)
+                var bookXmlPath = Path.Combine(bookFolder, "book.xml");
+                if (File.Exists(bookXmlPath))
+                {
+                    var content = await File.ReadAllTextAsync(bookXmlPath);
+                    Log($"book.xml: {content.Length} bytes, encrypted={_decryptionService.IsEncrypted(content)}");
+
+                    if (_decryptionService.IsEncrypted(content))
+                    {
+                        var decrypted = _decryptionService.DecryptBookFile(content, bookUid);
+                        await File.WriteAllTextAsync(bookXmlPath, decrypted);
+                        Log($"book.xml decrypted → {decrypted.Length} bytes");
+                    }
+                }
+
+                // 2) Decrypt all XML/HTM (per-file key from filename)
+                int xmlDecrypted = 0, xmlSkipped = 0;
+                foreach (var file in xmlFiles.Concat(htmFiles))
+                {
+                    try
+                    {
+                        var content = await File.ReadAllTextAsync(file);
+                        if (!_decryptionService.IsEncrypted(content))
+                        {
+                            xmlSkipped++;
+                            continue;
+                        }
+
+                        var fileName = Path.GetFileName(file);
+                        var decrypted = _decryptionService.DecryptXmlOrHtm(content, fileName);
+                        await File.WriteAllTextAsync(file, decrypted);
+                        xmlDecrypted++;
+                        Log($"  ✓ {fileName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"  ✗ {Path.GetFileName(file)}: {ex.Message}");
+                    }
+                }
+                Log($"XML/HTM: {xmlDecrypted} decrypted, {xmlSkipped} skipped");
+
+                // 3) Decrypt all HTML using book key
+                int bookKey = _decryptionService.CalculateKey(bookUid);
+                Log($"Book Key: {bookKey}");
+
+                int htmlDecrypted = 0, htmlSkipped = 0;
+                foreach (var file in htmlFiles)
+                {
+                    try
+                    {
+                        var content = await File.ReadAllTextAsync(file);
+                        bool looksPlain = content.Contains("<") && content.Contains(">") &&
+                                          (content.Contains("</") || content.Contains("/>")) &&
+                                          (content.Contains("class=") || content.Contains("<div") || content.Contains("id="));
+
+                        if (looksPlain)
+                        {
+                            htmlSkipped++;
+                            continue;
+                        }
+
+                        var decrypted = _decryptionService.DecryptWithKey(content, bookKey);
+                        await File.WriteAllTextAsync(file, decrypted);
+                        htmlDecrypted++;
+                        Log($"  ✓ {Path.GetFileName(file)}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"  ✗ {Path.GetFileName(file)}: {ex.Message}");
+                    }
+                }
+                Log($"HTML: {htmlDecrypted} decrypted, {htmlSkipped} skipped");
+            }
+            catch (Exception ex)
+            {
+                Log($"DecryptBookFolderAsync error: {ex.Message}");
+            }
+        }
+
         private async Task ExtractZipAsync(string zipPath, string extractDir)
         {
             try
@@ -190,7 +334,6 @@ namespace BookViewer.Services
                     if (entry.FullName.EndsWith("/"))
                         continue;
 
-                    // Normalize path: replace backslashes with forward slashes
                     var entryName = entry.FullName.Replace('\\', '/');
                     var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                     var directory = Path.GetDirectoryName(fullPath);
@@ -250,7 +393,6 @@ namespace BookViewer.Services
                                 if (entry.FullName.EndsWith("/"))
                                     continue;
 
-                                // Normalize path: replace backslashes with forward slashes
                                 var entryName = entry.FullName.Replace('\\', '/');
                                 var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
@@ -258,11 +400,9 @@ namespace BookViewer.Services
                                     Directory.CreateDirectory(directory);
 
                                 if (!File.Exists(fullPath))
-                                {
                                     entry.ExtractToFile(fullPath, true);
-                                }
                             }
-                            Log($"Extracted resource PC zip to: {extractDir}");
+                            Log("Extracted resource PC zip");
                         }
                         catch (Exception ex)
                         {
@@ -286,7 +426,6 @@ namespace BookViewer.Services
 
             try
             {
-                // Look for unit folders
                 var unitsDir = Path.Combine(extractDir, "units");
                 if (Directory.Exists(unitsDir))
                 {
@@ -298,7 +437,6 @@ namespace BookViewer.Services
                     }
                 }
 
-                // Look in XML/JSON files
                 foreach (var file in Directory.GetFiles(extractDir, "*.*", SearchOption.AllDirectories))
                 {
                     if (file.EndsWith(".xml") || file.EndsWith(".json") || file.EndsWith(".txt"))
@@ -330,10 +468,20 @@ namespace BookViewer.Services
         {
             try
             {
+                int total = unitUids.Count;
+                int current = 0;
+
                 foreach (var uid in unitUids)
                 {
+                    current++;
+                    int pct = 65 + (int)((current / (double)total) * 12);
+                    OnProgress?.Invoke(this, pct);
+                    Log($"[Unit {current}/{total}] Downloading unitUID_{uid}...");
+
                     await DownloadAndExtractUnitAsync(uid, parentDir, bookNumber, extractDir);
                 }
+
+                Log($"All {total} units processed");
             }
             catch (Exception ex)
             {
@@ -366,7 +514,6 @@ namespace BookViewer.Services
                                 if (entry.FullName.EndsWith("/"))
                                     continue;
 
-                                // Normalize path: replace backslashes with forward slashes
                                 var entryName = entry.FullName.Replace('\\', '/');
                                 var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
@@ -374,11 +521,9 @@ namespace BookViewer.Services
                                     Directory.CreateDirectory(directory);
 
                                 if (!File.Exists(fullPath))
-                                {
                                     entry.ExtractToFile(fullPath, true);
-                                }
                             }
-                            Log($"Extracted unit {uid} to: {extractDir}");
+                            Log($"Extracted unit {uid}");
                         }
                         catch (Exception ex)
                         {
@@ -390,7 +535,6 @@ namespace BookViewer.Services
                     }
                 }
 
-                // Also try to download unit PC resource
                 await DownloadAndExtractUnitPCAsync(uid, parentDir, bookNumber, extractDir);
             }
             catch (Exception ex)
@@ -424,7 +568,6 @@ namespace BookViewer.Services
                                 if (entry.FullName.EndsWith("/"))
                                     continue;
 
-                                // Normalize path: replace backslashes with forward slashes
                                 var entryName = entry.FullName.Replace('\\', '/');
                                 var fullPath = Path.Combine(extractDir, entryName.Replace('/', Path.DirectorySeparatorChar));
                                 var directory = Path.GetDirectoryName(fullPath);
@@ -432,11 +575,9 @@ namespace BookViewer.Services
                                     Directory.CreateDirectory(directory);
 
                                 if (!File.Exists(fullPath))
-                                {
                                     entry.ExtractToFile(fullPath, true);
-                                }
                             }
-                            Log($"Extracted unit PC {uid} to: {extractDir}");
+                            Log($"Extracted unit PC {uid}");
                         }
                         catch (Exception ex)
                         {
@@ -458,7 +599,6 @@ namespace BookViewer.Services
         {
             try
             {
-                // Look for cover image in various locations
                 string[] possibleCoverPaths = new[]
                 {
                     Path.Combine(bookDir, $"{bookNumber}.png"),
@@ -480,7 +620,6 @@ namespace BookViewer.Services
                     }
                 }
 
-                // If no cover found, try to download it
                 if (string.IsNullOrEmpty(foundCover))
                 {
                     string[] coverUrls = new[]
@@ -490,7 +629,7 @@ namespace BookViewer.Services
                     };
 
                     string coverPath = Path.Combine(bookDir, $"{bookNumber}.png");
-                    
+
                     foreach (var coverUrl in coverUrls)
                     {
                         if (await DownloadFileAsync(coverUrl, coverPath))
@@ -503,25 +642,19 @@ namespace BookViewer.Services
                 }
                 else
                 {
-                    // Copy the found cover to the root with the book number name
                     string destPath = Path.Combine(bookDir, $"{bookNumber}.png");
                     if (foundCover != destPath)
                     {
                         File.Copy(foundCover, destPath, true);
                         foundCover = destPath;
                     }
-                    Log($"Found cover image for book {bookNumber}: {foundCover}");
+                    Log($"Found cover image: {foundCover}");
                 }
             }
             catch (Exception ex)
             {
                 Log($"Error copying book cover: {ex.Message}");
             }
-        }
-
-        private void Log(string message)
-        {
-            System.Diagnostics.Debug.WriteLine($"[DownloadService] {message}");
         }
 
         private async Task<bool> DownloadFileAsync(string url, string savePath)
