@@ -24,6 +24,8 @@
         <AndroidCreatePackagePerAbi>false</AndroidCreatePackagePerAbi>
         <AndroidEnableAssemblyCompression>false</AndroidEnableAssemblyCompression>
         <AndroidEnableAot>false</AndroidEnableAot>
+        <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+        <AndroidUseAssemblyStore>false</AndroidUseAssemblyStore>
     </PropertyGroup>
 
     <ItemGroup>
