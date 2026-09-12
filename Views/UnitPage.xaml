@@ -20,9 +20,8 @@
                     <TapGestureRecognizer Tapped="OnBackTapped"/>
                 </Label.GestureRecognizers>
             </Label>
-            <Label Grid.Column="1" Text="Main Page" TextColor="White" FontSize="18" FontAttributes="Bold"
+            <Label Grid.Column="1" Text="Back" TextColor="White" FontSize="18" FontAttributes="Bold"
                    VerticalOptions="Center"/>
-            <Label Grid.Column="2" Text="✏" TextColor="White" FontSize="20" VerticalOptions="Center"/>
         </Grid>
         
         <!-- Unit banner image (from units/unitUID_[ID].png) -->
