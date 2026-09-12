@@ -131,44 +131,80 @@ namespace BookViewer.Views
         private void LoadBooks()
         {
             _books.Clear();
-
+        
             var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
-
-            if (Directory.Exists(booksDir))
+        
+            Log($"Scanning for books in: {booksDir}");
+        
+            if (!Directory.Exists(booksDir))
             {
-                foreach (var dir in Directory.GetDirectories(booksDir))
+                Log($"Books directory does not exist. Creating.");
+                Directory.CreateDirectory(booksDir);
+                BooksCollection.ItemsSource = _books;
+                EmptyState.IsVisible = true;
+                return;
+            }
+        
+            var subdirs = Directory.GetDirectories(booksDir);
+            Log($"Found {subdirs.Length} subdirectories");
+        
+            foreach (var dir in subdirs)
+            {
+                var dirName = Path.GetFileName(dir);
+                Log($"Checking folder: {dirName}");
+        
+                var bookXmlPath = Path.Combine(dir, "book.xml");
+                if (!File.Exists(bookXmlPath))
                 {
-                    var bookXmlPath = Path.Combine(dir, "book.xml");
-                    if (!File.Exists(bookXmlPath)) continue;
-
-                    try
+                    Log($"  ✗ book.xml NOT FOUND at {bookXmlPath}");
+        
+                    // Try to find book.xml anywhere in the subfolder
+                    var found = Directory.GetFiles(dir, "book.xml", SearchOption.AllDirectories);
+                    if (found.Length > 0)
                     {
-                        var content = File.ReadAllText(bookXmlPath);
-                        var book = new LibraryBook { FolderPath = dir };
-                        var data = new BookData();
-                        data.LoadFromXml(content, dir);
-                        book.Data = data;
-                        book.BookId = data.BookId;
-                        book.Title = string.IsNullOrEmpty(data.Title) ? Path.GetFileName(dir) : data.Title;
-                        book.DisplayName = book.Title;
-
-                        // Find cover image
-                        string cover = FindCoverImage(dir, book.BookId);
-                        if (!string.IsNullOrEmpty(cover) && File.Exists(cover))
-                            book.CoverImageSource = ImageSource.FromFile(cover);
-                        else
-                            book.CoverImageSource = "appicon.png"; // fallback
-
-                        _books.Add(book);
+                        Log($"  ℹ Found book.xml at: {found[0]}");
+                        bookXmlPath = found[0];
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        System.Diagnostics.Debug.WriteLine($"Error loading book: {ex.Message}");
+                        Log($"  ✗ No book.xml anywhere in folder, skipping");
+                        continue;
                     }
                 }
+        
+                try
+                {
+                    var content = File.ReadAllText(bookXmlPath);
+                    Log($"  book.xml size: {content.Length}");
+                    Log($"  book.xml starts with: {content.Substring(0, Math.Min(80, content.Length))}");
+        
+                    var book = new LibraryBook { FolderPath = dir };
+                    var data = new BookData();
+                    data.LoadFromXml(content, dir);
+                    book.Data = data;
+                    book.BookId = data.BookId;
+                    book.Title = string.IsNullOrEmpty(data.Title) ? dirName : data.Title;
+                    book.DisplayName = book.Title;
+        
+                    Log($"  ✓ Parsed: title='{book.Title}', id='{book.BookId}'");
+        
+                    string cover = FindCoverImage(dir, book.BookId);
+                    if (!string.IsNullOrEmpty(cover) && File.Exists(cover))
+                        book.CoverImageSource = ImageSource.FromFile(cover);
+                    else
+                        book.CoverImageSource = "appicon.png";
+        
+                    _books.Add(book);
+                }
+                catch (Exception ex)
+                {
+                    Log($"  ✗ Error parsing book.xml: {ex.Message}");
+                }
             }
-
+        
+            Log($"Total books loaded: {_books.Count}");
+        
             BooksCollection.ItemsSource = _books;
             EmptyState.IsVisible = _books.Count == 0;
         }
