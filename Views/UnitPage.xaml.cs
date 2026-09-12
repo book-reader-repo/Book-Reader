@@ -29,6 +29,7 @@ namespace BookViewer.Views
         public UnitPage(string bookFolder, BookData bookData, UnitData unit)
         {
             InitializeComponent();
+            NavigationPage.SetHasNavigationBar(this, false);
             _bookFolder = bookFolder;
             _bookData = bookData;
             _unit = unit;
