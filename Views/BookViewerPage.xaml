@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="BookViewer.Views.BookViewerPage"
              Title="Book Viewer"
-             BackgroundColor="#1a1a2e">
+             BackgroundColor="#ffffff">
     
     <Grid>
         <Grid.RowDefinitions>
@@ -16,7 +16,7 @@
         <ScrollView Grid.Row="0" 
                     Orientation="Horizontal" 
                     HorizontalScrollBarVisibility="Never"
-                    BackgroundColor="#16213e">
+                    BackgroundColor="#cccccc">
             <Grid Padding="8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
