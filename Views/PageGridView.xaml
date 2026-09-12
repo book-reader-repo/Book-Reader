@@ -14,16 +14,19 @@
                     <GridItemsLayout Orientation="Vertical" Span="4"
                                      HorizontalItemSpacing="6" VerticalItemSpacing="6"/>
                 </CollectionView.ItemsLayout>
-
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <VerticalStackLayout Spacing="2">
+                        <VerticalStackLayout Spacing="4" Padding="4">
+                            <VerticalStackLayout.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageTapped"/>
+                            </VerticalStackLayout.GestureRecognizers>
                             <Frame Padding="0" CornerRadius="4" HasShadow="False"
-                                   WidthRequest="220" HeightRequest="290">
+                                   WidthRequest="220" HeightRequest="290"
+                                   IsClippedToBounds="True">
                                 <Image Source="{Binding ThumbnailSource}"
                                        Aspect="AspectFill"/>
                             </Frame>
-                            <Label Text="{Binding PageNumber}" 
+                            <Label Text="{Binding PageNumber}"
                                    FontSize="11" TextColor="#8899bb"
                                    HorizontalTextAlignment="Center"/>
                         </VerticalStackLayout>
