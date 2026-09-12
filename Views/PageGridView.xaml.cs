@@ -23,6 +23,7 @@ namespace BookViewer.Views
         public PageGridView(List<string> pageFiles, int currentIndex, Action<int> onPageSelected)
         {
             InitializeComponent();
+            NavigationPage.SetHasNavigationBar(this, false);
             _pageFiles = pageFiles;
             _onPageSelected = onPageSelected;
 
