@@ -32,7 +32,12 @@ namespace BookViewer.Services
 
         public async Task DownloadBookAsync(int bookNumber)
         {
-            if (_isDownloading) { ... return; }
+            if (_isDownloading)
+            {
+                OnError?.Invoke(this, "Download already in progress");
+                return;
+            }
+        
             _isDownloading = true;
         
             try
@@ -40,7 +45,9 @@ namespace BookViewer.Services
                 Log($"=== DOWNLOAD BOOK {bookNumber} START ===");
                 OnProgress?.Invoke(this, 0);
         
-                var booksDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer", "Books");
+                // Books directory
+                var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
                 Directory.CreateDirectory(booksDir);
                 Log($"Books directory: {booksDir}");
         
@@ -49,10 +56,11 @@ namespace BookViewer.Services
                 Log($"Temp directory: {tempDir}");
         
                 var finalBookDir = Path.Combine(booksDir, $"book_{bookNumber}");
+        
                 if (Directory.Exists(finalBookDir))
                 {
-                    Log($"Book {bookNumber} already exists at {finalBookDir}");
-                    OnError?.Invoke(this, $"Book {bookNumber} already exists.");
+                    Log($"Book {bookNumber} already exists at: {finalBookDir}");
+                    OnError?.Invoke(this, $"Book {bookNumber} already exists. Please delete it first.");
                     _isDownloading = false;
                     return;
                 }
@@ -75,49 +83,65 @@ namespace BookViewer.Services
                     var url = $"{BaseUrl}/{pattern}";
                     var savePath = Path.Combine(tempDir, $"book_{bookNumber}.zip");
         
-                    Log($"Trying URL: {url}");
+                    Log($"Trying URL [{i + 1}/{urlPatterns.Length}]: {url}");
                     OnProgress?.Invoke(this, 10 + (i * 20));
         
                     if (await DownloadFileAsync(url, savePath))
                     {
-                        Log($"Downloaded to: {savePath}");
+                        Log($"Downloaded: {savePath} ({new FileInfo(savePath).Length} bytes)");
+        
                         if (await VerifyZipAsync(savePath))
                         {
-                            Log($"Zip verified, extracting...");
+                            Log("Zip signature verified");
+        
                             bookExtractDir = Path.Combine(tempDir, "extracted");
                             Directory.CreateDirectory(bookExtractDir);
         
                             OnProgress?.Invoke(this, 30);
+                            Log("Extracting main book zip...");
                             await ExtractZipAsync(savePath, bookExtractDir);
+                            Log("Main book zip extracted");
+        
                             File.Delete(savePath);
                             bookDownloaded = true;
         
                             parentDir = pattern.Contains("/P02/")
                                 ? pattern.Split("/P02/")[0] + "/P02"
                                 : pattern.Substring(0, pattern.LastIndexOf('/'));
-                            Log($"Parent dir: {parentDir}");
+                            Log($"Parent dir resolved: {parentDir}");
         
+                            // Resource PC
                             OnProgress?.Invoke(this, 50);
                             Log("Downloading resource PC zip...");
                             await DownloadAndExtractResourcePCAsync(bookNumber, parentDir, bookExtractDir);
         
+                            // Units
                             OnProgress?.Invoke(this, 70);
                             var unitUids = FindUnitUids(bookExtractDir);
-                            Log($"Found {unitUids.Count} unit UIDs: {string.Join(", ", unitUids)}");
+                            Log($"Found {unitUids.Count} unit UIDs: [{string.Join(", ", unitUids)}]");
         
                             if (unitUids.Any())
                             {
                                 Log("Downloading unit zips...");
                                 await DownloadAndExtractUnitsAsync(unitUids, parentDir, bookNumber, bookExtractDir);
                             }
+                            else
+                            {
+                                Log("No units to download");
+                            }
         
+                            // Copy to final
                             OnProgress?.Invoke(this, 85);
+                            Log($"Copying to final directory: {finalBookDir}");
                             Directory.CreateDirectory(finalBookDir);
                             CopyDirectory(bookExtractDir, finalBookDir);
-                            Log($"Copied to final directory: {finalBookDir}");
         
+                            // Cover
+                            Log("Locating/copying cover image...");
                             await CopyBookCoverAsync(bookNumber, finalBookDir);
         
+                            // Cleanup
+                            Log("Cleaning up temp directory...");
                             try { Directory.Delete(tempDir, true); } catch { }
         
                             OnProgress?.Invoke(this, 100);
@@ -128,25 +152,26 @@ namespace BookViewer.Services
                         }
                         else
                         {
-                            Log($"Zip verification failed for {savePath}");
-                            File.Delete(savePath);
+                            Log($"Zip verification FAILED for {savePath}");
+                            try { File.Delete(savePath); } catch { }
                         }
                     }
                     else
                     {
-                        Log($"Failed to download from {url}");
+                        Log($"Download FAILED: {url}");
                     }
                 }
         
                 if (!bookDownloaded)
                 {
-                    Log($"=== DOWNLOAD BOOK {bookNumber} FAILED ===");
+                    Log($"=== DOWNLOAD BOOK {bookNumber} FAILED (all URLs exhausted) ===");
                     OnError?.Invoke(this, $"Failed to download book {bookNumber}");
                 }
             }
             catch (Exception ex)
             {
-                Log($"Exception: {ex.Message}");
+                Log($"EXCEPTION: {ex.Message}");
+                Log($"Stack trace: {ex.StackTrace}");
                 OnError?.Invoke(this, $"Download failed: {ex.Message}");
             }
             finally
@@ -154,6 +179,7 @@ namespace BookViewer.Services
                 _isDownloading = false;
             }
         }
+        
         private async Task ExtractZipAsync(string zipPath, string extractDir)
         {
             try
