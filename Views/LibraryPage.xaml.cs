@@ -35,7 +35,11 @@ namespace BookViewer.Views
             LoadBooks();
         }
 
-
+        private async void OnRefreshClicked(object sender, EventArgs e)
+        {
+            LoadBooks();
+            await Task.CompletedTask;
+        }
         private static readonly object _logLock = new object();
         private static string _logFilePath = null;
         
