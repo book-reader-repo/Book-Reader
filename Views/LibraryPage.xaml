@@ -15,7 +15,7 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Label Grid.Column="0" Text="Book Viewer" 
+            <Label Grid.Column="0" Text="Book Reader" 
                    TextColor="White" FontSize="22" FontAttributes="Bold" 
                    VerticalOptions="Center"/>
 
@@ -48,10 +48,10 @@
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
                         <VerticalStackLayout WidthRequest="180" Spacing="12">
-                            <Frame Padding="0" CornerRadius="90"
+                            <Frame Padding="0" CornerRadius="0"
                                    WidthRequest="180" HeightRequest="180"
                                    HorizontalOptions="Center"
-                                   BackgroundColor="#B2DFDB"
+                                   BackgroundColor="#FFFFFF"
                                    HasShadow="False">
                                 <Image Source="{Binding CoverImageSource}"
                                        Aspect="AspectFill"
