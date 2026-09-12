@@ -72,7 +72,7 @@ public partial class BookViewerPage : ContentPage
         await Navigation.PopAsync();
     }
 
-    public BookViewerPage(string bookFolder, int startPage)
+    public BookViewerPage(string bookFolder, int startFolio)
     {
         InitializeComponent();
         NavigationPage.SetHasNavigationBar(this, false);
@@ -169,12 +169,25 @@ public partial class BookViewerPage : ContentPage
                 UpdateTeacherButton();
                 UpdateStudentButton();
         
-                if (startPage > 1)
+                if (startPage > 0)
                 {
-                    var idx = Math.Min(startPage - 1, _bookService.PageFiles.Count - 1);
-                    if (idx > 0)
+                    // Try folio → step file lookup
+                    int idx = -1;
+                    if (_bookService.FolioToStepFile.TryGetValue(startPage, out var stepFile))
                     {
-                        Log($"Jumping to start page index {idx}");
+                        idx = _bookService.GetIndexForStepFile(stepFile);
+                        Log($"Folio {startPage} → {stepFile} → index {idx}");
+                    }
+        
+                    // Fallback: treat as direct index
+                    if (idx < 0 && startPage <= _bookService.PageFiles.Count)
+                    {
+                        idx = startPage - 1;
+                        Log($"Fallback: treating {startPage} as index {idx}");
+                    }
+        
+                    if (idx >= 0 && idx < _bookService.PageFiles.Count)
+                    {
                         await _bookService.LoadPageAsync(idx);
                     }
                 }
