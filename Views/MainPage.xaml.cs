@@ -9,9 +9,9 @@ using System.Threading.Tasks;
 using System.Xml;
 using Color = Microsoft.Maui.Graphics.Color;
 
-namespace BookViewer;
+namespace BookViewer.Views;
 
-public partial class MainPage : ContentPage
+public partial class BookViewerPage : ContentPage
 {
     private readonly BookService _bookService = new();
     private bool _showTeacherNotes = false;
@@ -20,16 +20,6 @@ public partial class MainPage : ContentPage
     private string _currentTeacherHtml = "";
     private string _currentStudentHtml = "";
     private string _currentViewMode = "content";
-    private List<BookInfo> _downloadedBooks = new();
-
-    public class BookInfo
-    {
-        public string BookPath { get; set; } = "";
-        public string BookId { get; set; } = "";
-        public string Title { get; set; } = "";
-        public string CoverPath { get; set; } = "";
-        public string DisplayName { get; set; } = "";
-    }
 
     private static readonly object _logLock = new object();
     private static string _logFilePath = null;
@@ -44,7 +34,7 @@ public partial class MainPage : ContentPage
             {
                 Directory.CreateDirectory(logFolder);
             }
-            _logFilePath = Path.Combine(logFolder, $"MainPage_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+            _logFilePath = Path.Combine(logFolder, $"BookViewerPage_{DateTime.Now:yyyyMMdd_HHmmss}.log");
         }
         return _logFilePath;
     }
@@ -77,18 +67,18 @@ public partial class MainPage : ContentPage
         }
     }
 
-    public MainPage()
+    public BookViewerPage(string bookFolder, int startPage)
     {
         InitializeComponent();
-        Log("=== MAIN PAGE INITIALIZED ===");
+        Log("=== BOOK VIEWER PAGE INITIALIZED ===");
+        Log($"Book folder: {bookFolder}");
+        Log($"Start page: {startPage}");
         Log($"Log file: {GetLogFilePath()}");
 
         ContentWebView.BackgroundColor = Colors.Transparent;
         NextPageWebView.BackgroundColor = Colors.Transparent;
         TeacherWebView.BackgroundColor = Colors.Transparent;
         StudentWebView.BackgroundColor = Colors.Transparent;
-
-        BookPicker.SelectedIndexChanged += OnBookPickerSelectedIndexChanged;
 
         _bookService.OnPagesLoaded += (s, pages) =>
         {
@@ -134,85 +124,27 @@ public partial class MainPage : ContentPage
         _bookService.OnZoomChanged += (s, zoom) =>
             Device.BeginInvokeOnMainThread(() => ZoomLabel.Text = $"{zoom:F1}x");
 
-        LoadDownloadedBooks();
-    }
-
-    private void LoadDownloadedBooks()
-    {
-        try
+        // Load the book, and after pages are loaded, jump to start page
+        _bookService.OnPagesLoaded += async (s, pages) =>
         {
-            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
-
-            if (!Directory.Exists(booksDir))
+            Device.BeginInvokeOnMainThread(async () =>
             {
-                Directory.CreateDirectory(booksDir);
-                return;
-            }
-
-            _downloadedBooks.Clear();
-
-            foreach (var dir in Directory.GetDirectories(booksDir))
-            {
-                var bookId = Path.GetFileName(dir);
-                var bookXmlPath = Path.Combine(dir, "book.xml");
-
-                if (!File.Exists(bookXmlPath))
-                    continue;
-
-                try
+                if (startPage > 1 && pages.Count > 0)
                 {
-                    string title = bookId;
-                    string content = File.ReadAllText(bookXmlPath);
-                    var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
-                    if (titleMatch.Success)
-                        title = titleMatch.Groups[1].Value;
-
-                    string coverPath = "";
-                    var coverFile = Directory.GetFiles(dir, $"{bookId}.png").FirstOrDefault();
-                    if (string.IsNullOrEmpty(coverFile))
-                        coverFile = Directory.GetFiles(dir, "cover.png").FirstOrDefault();
-                    if (string.IsNullOrEmpty(coverFile))
-                        coverFile = Directory.GetFiles(dir, "*.png").FirstOrDefault();
-
-                    if (!string.IsNullOrEmpty(coverFile))
-                        coverPath = coverFile;
-
-                    _downloadedBooks.Add(new BookInfo
+                    int targetIndex = Math.Min(startPage - 1, pages.Count - 1);
+                    if (targetIndex > 0)
                     {
-                        BookPath = dir,
-                        BookId = bookId,
-                        Title = title,
-                        CoverPath = coverPath,
-                        DisplayName = $"{title} ({bookId})"
-                    });
+                        Log($"Jumping to start page index {targetIndex}");
+                        await _bookService.LoadPageAsync(targetIndex);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    Log($"Error loading book {bookId}: {ex.Message}");
-                }
-            }
+            });
+        };
 
-            BookPicker.ItemsSource = _downloadedBooks.Select(b => b.DisplayName).ToList();
-            BookPicker.SelectedIndex = -1;
-        }
-        catch (Exception ex)
+        // Kick off the load
+        Loaded += async (s, e) =>
         {
-            Log($"Error loading downloaded books: {ex.Message}");
-        }
-    }
-
-    private async void OnBookPickerSelectedIndexChanged(object sender, EventArgs e)
-    {
-        try
-        {
-            if (BookPicker.SelectedIndex < 0 || BookPicker.SelectedIndex >= _downloadedBooks.Count)
-                return;
-
-            var bookInfo = _downloadedBooks[BookPicker.SelectedIndex];
-            Log($"Selected book: {bookInfo.DisplayName}");
-
-            var success = await _bookService.LoadBookAsync(bookInfo.BookPath);
+            var success = await _bookService.LoadBookAsync(bookFolder);
             if (success)
             {
                 TeacherNotesButton.IsEnabled = true;
@@ -221,6 +153,7 @@ public partial class MainPage : ContentPage
                 SideBySideButton.IsEnabled = true;
                 ViewModeButton.IsEnabled = true;
                 ExportPdfButton.IsEnabled = true;
+                GridButton.IsEnabled = true;
 
                 _currentViewMode = "content";
                 _showTeacherNotes = false;
@@ -228,22 +161,12 @@ public partial class MainPage : ContentPage
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
-
-                StatusLabel.Text = $"Loaded: {bookInfo.Title}";
             }
-        }
-        catch (Exception ex)
-        {
-            Log($"Error loading selected book: {ex.Message}");
-            await DisplayAlert("Error", $"Failed to load book: {ex.Message}", "OK");
-        }
-    }
-
-    private async void OnRefreshBooksClicked(object sender, EventArgs e)
-    {
-        LoadDownloadedBooks();
-        StatusLabel.Text = $"Found {_downloadedBooks.Count} books";
-        await Task.CompletedTask;
+            else
+            {
+                await DisplayAlert("Error", "Failed to load book", "OK");
+            }
+        };
     }
 
     private async void LoadTeacherView()
@@ -703,127 +626,6 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private async void OnOpenBookClicked(object sender, EventArgs e)
-    {
-        try
-        {
-            var result = await FilePicker.PickAsync(new PickOptions
-            {
-                PickerTitle = "Select book.xml"
-            });
-
-            if (result != null)
-            {
-                var filePath = result.FullPath;
-                var fileName = Path.GetFileName(filePath);
-
-                if (fileName.Equals("book.xml", StringComparison.OrdinalIgnoreCase))
-                {
-                    var folderPath = Path.GetDirectoryName(filePath);
-                    var success = await _bookService.LoadBookAsync(folderPath);
-                    if (success)
-                    {
-                        TeacherNotesButton.IsEnabled = true;
-                        StudentAnswersButton.IsEnabled = true;
-                        DecryptButton.IsEnabled = true;
-                        SideBySideButton.IsEnabled = true;
-                        ViewModeButton.IsEnabled = true;
-                        ExportPdfButton.IsEnabled = true;
-
-                        _currentViewMode = "content";
-                        _showTeacherNotes = false;
-                        _showStudentAnswers = false;
-                        UpdateViewModeButton();
-                        UpdateTeacherButton();
-                        UpdateStudentButton();
-
-                        await DisplayAlert("Success", $"Book loaded!\nLog file: {GetLogFilePath()}", "OK");
-                    }
-                    else
-                    {
-                        await DisplayAlert("Error", "Failed to load book", "OK");
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log($"ERROR opening book: {ex.Message}");
-            await DisplayAlert("Error", $"Failed to open file: {ex.Message}", "OK");
-        }
-    }
-
-    private async void OnDownloadClicked(object sender, EventArgs e)
-    {
-        try
-        {
-            var number = await DisplayPromptAsync("Download Book",
-                "Enter book number to download (e.g., 3688):",
-                "Download", "Cancel", "3688", -1, Keyboard.Numeric);
-
-            if (!int.TryParse(number, out int bookNumber))
-            {
-                await DisplayAlert("Error", "Please enter a valid book number", "OK");
-                return;
-            }
-
-            StatusLabel.Text = $"Downloading book {bookNumber}...";
-            DownloadButton.IsEnabled = false;
-
-            var downloadService = new Services.DownloadService();
-            var tcs = new TaskCompletionSource<bool>();
-
-            downloadService.OnProgress += (s, progress) =>
-            {
-                Device.BeginInvokeOnMainThread(() =>
-                {
-                    StatusLabel.Text = $"Downloading... {progress}%";
-                });
-            };
-
-            downloadService.OnComplete += (s, bookPath) =>
-            {
-                Device.BeginInvokeOnMainThread(async () =>
-                {
-                    StatusLabel.Text = $"Book {bookNumber} downloaded successfully!";
-                    await DisplayAlert("Success", $"Book {bookNumber} has been downloaded to:\n{bookPath}", "OK");
-
-                    LoadDownloadedBooks();
-
-                    var bookInfo = _downloadedBooks.FirstOrDefault(b => b.BookId == $"book_{bookNumber}");
-                    if (bookInfo != null)
-                    {
-                        var index = _downloadedBooks.IndexOf(bookInfo);
-                        BookPicker.SelectedIndex = index;
-                    }
-
-                    DownloadButton.IsEnabled = true;
-                    tcs.SetResult(true);
-                });
-            };
-
-            downloadService.OnError += (s, error) =>
-            {
-                Device.BeginInvokeOnMainThread(async () =>
-                {
-                    StatusLabel.Text = $"Error: {error}";
-                    await DisplayAlert("Error", $"Download failed: {error}", "OK");
-                    DownloadButton.IsEnabled = true;
-                    tcs.SetResult(false);
-                });
-            };
-
-            await downloadService.DownloadBookAsync(bookNumber);
-            await tcs.Task;
-        }
-        catch (Exception ex)
-        {
-            StatusLabel.Text = $"Error: {ex.Message}";
-            await DisplayAlert("Error", $"Download failed: {ex.Message}", "OK");
-            DownloadButton.IsEnabled = true;
-        }
-    }
-
     private async void OnExportPdfClicked(object sender, EventArgs e)
     {
         if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
@@ -908,6 +710,21 @@ public partial class MainPage : ContentPage
             StatusLabel.Text = $"Export failed: {ex.Message}";
             await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
         }
+    }
+
+    private async void OnGridClicked(object sender, EventArgs e)
+    {
+        if (_bookService.PageFiles.Count == 0) return;
+
+        var gridPage = new PageGridView(
+            _bookService.PageFiles,
+            _bookService.CurrentPageIndex,
+            (pageIndex) =>
+            {
+                _ = _bookService.LoadPageAsync(pageIndex);
+            });
+
+        await Navigation.PushAsync(gridPage);
     }
 
     private async void OnDecryptClicked(object sender, EventArgs e)
