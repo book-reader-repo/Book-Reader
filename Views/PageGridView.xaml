@@ -2,49 +2,83 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="BookViewer.Views.PageGridView"
-             BackgroundColor="#eeeeee">
+             BackgroundColor="#FFFFFF">
 
-    <Grid RowDefinitions="*,Auto">
+    <Grid RowDefinitions="Auto,*,Auto">
 
-        <ScrollView Grid.Row="0">
-            <CollectionView x:Name="PagesCollection" Margin="8"
-                            SelectionMode="Single"
-                            SelectionChanged="OnPageSelected">
+        <!-- Top bar (green) -->
+        <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="12,10"
+              ColumnDefinitions="Auto,*,Auto">
+
+            <Button Grid.Column="0"
+                    Text="Back"
+                    Clicked="OnCloseClicked"
+                    BackgroundColor="Transparent"
+                    TextColor="White"
+                    FontSize="14"
+                    Padding="8,4"
+                    VerticalOptions="Center"/>
+
+            <Label Grid.Column="1"
+                   Text="Pages"
+                   TextColor="White"
+                   FontSize="16"
+                   FontAttributes="Bold"
+                   HorizontalTextAlignment="Center"
+                   VerticalOptions="Center"/>
+
+            <Label Grid.Column="2"
+                   Text=""
+                   WidthRequest="40"/>
+        </Grid>
+
+        <!-- Page grid -->
+        <ScrollView Grid.Row="1">
+            <CollectionView x:Name="PagesCollection"
+                            Margin="12"
+                            SelectionMode="None">
                 <CollectionView.ItemsLayout>
-                    <GridItemsLayout Orientation="Vertical" Span="4"
-                                     HorizontalItemSpacing="6" VerticalItemSpacing="6"/>
+                    <GridItemsLayout Orientation="Vertical"
+                                     Span="4"
+                                     HorizontalItemSpacing="10"
+                                     VerticalItemSpacing="10"/>
                 </CollectionView.ItemsLayout>
+
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <VerticalStackLayout Spacing="4" Padding="4">
+                        <VerticalStackLayout Spacing="4">
                             <VerticalStackLayout.GestureRecognizers>
                                 <TapGestureRecognizer Tapped="OnPageTapped"/>
                             </VerticalStackLayout.GestureRecognizers>
-                            <Frame Padding="0" CornerRadius="4" HasShadow="False"
-                                   WidthRequest="220" HeightRequest="290"
-                                   IsClippedToBounds="True">
+
+                            <Frame Padding="0"
+                                   CornerRadius="4"
+                                   HasShadow="False"
+                                   BackgroundColor="#F5F5F5"
+                                   IsClippedToBounds="True"
+                                   WidthRequest="220"
+                                   HeightRequest="290">
                                 <Image Source="{Binding ThumbnailSource}"
                                        Aspect="AspectFill"/>
                             </Frame>
+
                             <Label Text="{Binding PageNumber}"
-                                   FontSize="11" TextColor="#8899bb"
+                                   FontSize="12"
+                                   TextColor="#666"
                                    HorizontalTextAlignment="Center"/>
                         </VerticalStackLayout>
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
             </CollectionView>
         </ScrollView>
-        <Grid Grid.Row="1" BackgroundColor="#cccccc" Padding="12,8"
-              ColumnDefinitions="Auto,*,Auto">
-            <Button Grid.Column="0" Text="◀ Back"
-                    Clicked="OnCloseClicked"
-                    BackgroundColor="#34495e" TextColor="White"/>
-            <Label Grid.Column="1" x:Name="StatusText" Text=""
-                   TextColor="#aaaaaa" FontSize="12"
-                   VerticalOptions="Center" HorizontalTextAlignment="Center"/>
-            <Button Grid.Column="2" Text="Close"
-                    Clicked="OnCloseClicked"
-                    BackgroundColor="#aaaaaa" TextColor="White"/>
+
+        <!-- Status bar -->
+        <Grid Grid.Row="2" BackgroundColor="#F5F5F5" Padding="12,6">
+            <Label x:Name="StatusText"
+                   Text=""
+                   TextColor="#666"
+                   FontSize="11"
+                   LineBreakMode="TailTruncation"/>
         </Grid>
     </Grid>
 </ContentPage>
