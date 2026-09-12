@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="BookViewer.Views.UnitPage"
+             BackgroundColor="#FFFFFF">
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+        <!-- Pink header -->
+        <Grid Grid.Row="0" BackgroundColor="#E91E63" Padding="12,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Label Grid.Column="0" Text="◀" TextColor="White" FontSize="20" 
+                   Margin="0,0,12,0" VerticalOptions="Center">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnBackTapped"/>
+                </Label.GestureRecognizers>
+            </Label>
+            <Label Grid.Column="1" Text="ENGLISH" TextColor="White" FontSize="18" FontAttributes="Bold"
+                   VerticalOptions="Center"/>
+            <Label Grid.Column="2" Text="✏" TextColor="White" FontSize="20" VerticalOptions="Center"/>
+        </Grid>
+
+        <!-- Green hero banner -->
+        <Grid Grid.Row="1" BackgroundColor="#8BC34A" HeightRequest="120">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Label x:Name="UnitNumberLabel" Grid.Column="0"
+                   Text="1" FontSize="80" FontAttributes="Bold" TextColor="White"
+                   VerticalOptions="Center" Margin="20,0"/>
+            <Label x:Name="UnitTitleLabel" Grid.Column="1"
+                   Text="Nice to meet you!" FontSize="32" FontAttributes="Bold" TextColor="White"
+                   VerticalOptions="Center"/>
+        </Grid>
+
+        <!-- Tabs + search -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" Padding="0" BackgroundColor="#F5F5F5">
+            <Label x:Name="ContentsTab" Grid.Column="0" Text="Contents" 
+                   Padding="20,12" BackgroundColor="#E0E0E0" TextColor="#333"/>
+            <Label x:Name="ResourcesTab" Grid.Column="1" Text="Resources" 
+                   Padding="20,12" TextColor="#666">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnResourcesTabTapped"/>
+                </Label.GestureRecognizers>
+            </Label>
+            <Label x:Name="MyResourcesTab" Grid.Column="2" Text="My resources" 
+                   Padding="20,12" TextColor="#666"/>
+            <Entry x:Name="SearchEntry" Grid.Column="4" Placeholder="" 
+                   WidthRequest="60" BackgroundColor="White" Margin="0,6,8,6"/>
+            <Label Grid.Column="5" Text="→" FontSize="20" Padding="12,8" TextColor="#666"/>
+        </Grid>
+
+        <!-- Content area -->
+        <Grid Grid.Row="3">
+            <!-- Contents view -->
+            <ScrollView x:Name="ContentsView">
+                <CollectionView x:Name="SectionsCollection"
+                                SelectionMode="Single">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Padding="20,16" BackgroundColor="White">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnSectionTapped"/>
+                                </Grid.GestureRecognizers>
+                                <BoxView Grid.ColumnSpan="2" HeightRequest="1" Color="#EEEEEE" 
+                                         VerticalOptions="End" Margin="-20,0"/>
+                                <Label Grid.Column="0" Text="{Binding Name}" FontSize="15" TextColor="#333"/>
+                                <Label Grid.Column="1" Text="{Binding PageStart}" FontSize="15" TextColor="#333"/>
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </ScrollView>
+
+            <!-- Resources view -->
+            <ScrollView x:Name="ResourcesView" IsVisible="False">
+                <VerticalStackLayout>
+                    <Grid Padding="20,12" BackgroundColor="#F5F5F5" ColumnDefinitions="80,*,80">
+                        <Label Grid.Column="0" Text="Type" FontSize="13" TextColor="#666"/>
+                        <Label Grid.Column="1" Text="Description" FontSize="13" TextColor="#666"/>
+                        <Label Grid.Column="2" Text="Page▲" FontSize="13" TextColor="#666"/>
+                    </Grid>
+                    <CollectionView x:Name="ResourcesCollection" SelectionMode="Single"
+                                    SelectionChanged="OnResourceSelected">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="20,14" BackgroundColor="White" ColumnDefinitions="80,*,80">
+                                    <BoxView Grid.ColumnSpan="3" HeightRequest="1" Color="#EEEEEE" 
+                                             VerticalOptions="End" Margin="-20,0"/>
+                                    <Label Grid.Column="0" Text="{Binding TypeIcon}" FontSize="20"/>
+                                    <Label Grid.Column="1" Text="{Binding Description}" FontSize="14" 
+                                           TextColor="#333" VerticalOptions="Center"/>
+                                    <Label Grid.Column="2" Text="{Binding PageNumber}" FontSize="14" 
+                                           TextColor="#333" VerticalOptions="Center"/>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </ScrollView>
+        </Grid>
+    </Grid>
+</ContentPage>
