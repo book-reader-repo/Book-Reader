@@ -33,7 +33,59 @@ namespace BookViewer.Views
             base.OnAppearing();
             LoadBooks();
         }
-
+        
+        private async void OnDownloadClicked(object sender, EventArgs e)
+        {
+            try
+            {
+                var number = await DisplayPromptAsync("Download Book",
+                    "Enter book number to download (e.g., 3688):",
+                    "Download", "Cancel", "3688", -1, Keyboard.Numeric);
+        
+                if (!int.TryParse(number, out int bookNumber))
+                {
+                    await DisplayAlert("Error", "Please enter a valid book number", "OK");
+                    return;
+                }
+        
+                var downloadService = new Services.DownloadService();
+                var tcs = new TaskCompletionSource<bool>();
+        
+                downloadService.OnProgress += (s, progress) =>
+                {
+                    Device.BeginInvokeOnMainThread(() =>
+                    {
+                        // Optional: show progress
+                    });
+                };
+        
+                downloadService.OnComplete += (s, bookPath) =>
+                {
+                    Device.BeginInvokeOnMainThread(async () =>
+                    {
+                        await DisplayAlert("Success", $"Book {bookNumber} downloaded to:\n{bookPath}", "OK");
+                        LoadBooks(); // refresh the grid
+                        tcs.SetResult(true);
+                    });
+                };
+        
+                downloadService.OnError += (s, error) =>
+                {
+                    Device.BeginInvokeOnMainThread(async () =>
+                    {
+                        await DisplayAlert("Error", $"Download failed: {error}", "OK");
+                        tcs.SetResult(false);
+                    });
+                };
+        
+                await downloadService.DownloadBookAsync(bookNumber);
+                await tcs.Task;
+            }
+            catch (Exception ex)
+            {
+                await DisplayAlert("Error", ex.Message, "OK");
+            }
+        }
         private void LoadBooks()
         {
             _books.Clear();
