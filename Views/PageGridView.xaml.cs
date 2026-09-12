@@ -29,6 +29,14 @@ namespace BookViewer.Views
 
             LoadThumbnails(currentIndex);
         }
+        private async void OnPageTapped(object sender, TappedEventArgs e)
+        {
+            if ((sender as BindableObject)?.BindingContext is PageThumbnail page)
+            {
+                _onPageSelected?.Invoke(page.Index);
+                await Navigation.PopAsync();
+            }
+        }
 
         private async void LoadThumbnails(int currentIndex)
         {
