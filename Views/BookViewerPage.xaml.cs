@@ -86,11 +86,6 @@ public partial class BookViewerPage : ContentPage
         TeacherWebView.BackgroundColor = Colors.Transparent;
         StudentWebView.BackgroundColor = Colors.Transparent;
 
-        _bookService.OnPagesLoaded += (s, pages) =>
-        {
-            Device.BeginInvokeOnMainThread(() => UpdateUI());
-        };
-
         _bookService.OnPageChanged += (s, content) =>
         {
             Device.BeginInvokeOnMainThread(() =>
@@ -150,6 +145,9 @@ public partial class BookViewerPage : ContentPage
         // Kick off the load
         Loaded += async (s, e) =>
         {
+            if (_bookLoaded) return;
+            _bookLoaded = true;
+        
             var success = await _bookService.LoadBookAsync(bookFolder);
             if (success)
             {
@@ -160,17 +158,22 @@ public partial class BookViewerPage : ContentPage
                 ViewModeButton.IsEnabled = true;
                 ExportPdfButton.IsEnabled = true;
                 GridButton.IsEnabled = true;
-
+        
                 _currentViewMode = "content";
                 _showTeacherNotes = false;
                 _showStudentAnswers = false;
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
+        
                 if (startPage > 1)
                 {
                     var idx = Math.Min(startPage - 1, _bookService.PageFiles.Count - 1);
-                    await _bookService.LoadPageAsync(idx);
+                    if (idx > 0)
+                    {
+                        Log($"Jumping to start page index {idx}");
+                        await _bookService.LoadPageAsync(idx);
+                    }
                 }
             }
             else
