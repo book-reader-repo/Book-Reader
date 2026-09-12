@@ -106,12 +106,15 @@ public partial class BookViewerPage : ContentPage
 
         _bookService.OnTwoPageSpreadToggled += (s, enabled) =>
         {
-            Device.BeginInvokeOnMainThread(() =>
+            Dispatcher.Dispatch(() =>
             {
-                SideBySideButton.Text = enabled ? "📄 2/2" : "📄 1/2";
+                SideBySideButton.Text = enabled ? "2 Pages" : "1 Page";
                 SideBySideButton.BackgroundColor = enabled
-                    ? Color.FromArgb("#3498db")
-                    : Color.FromArgb("#2c3e50");
+                    ? Color.FromArgb("#8BC34A")
+                    : Color.FromArgb("#E0E0E0");
+                SideBySideButton.TextColor = enabled
+                    ? Colors.White
+                    : Color.FromArgb("#333333");
                 StatusLabel.Text = enabled ? "Two-page spread" : "Single page";
                 UpdateDisplay();
             });
@@ -541,32 +544,32 @@ public partial class BookViewerPage : ContentPage
             UpdateViewModeButton();
         }
     }
-
+    
     private void UpdateViewModeButton()
     {
         string text = _currentViewMode switch
         {
-            "content" => "📄 Content",
-            "teacher" => "👨‍🏫 Teacher",
-            "student" => "👨‍🎓 Student",
-            _ => "📄 Content"
+            "content" => "Content",
+            "teacher" => "Teacher",
+            "student" => "Student",
+            _ => "Content"
         };
         ViewModeButton.Text = text;
-
-        ViewModeButton.BackgroundColor = _currentViewMode switch
-        {
-            "content" => Color.FromArgb("#2c3e50"),
-            "teacher" => Color.FromArgb("#3498db"),
-            "student" => Color.FromArgb("#2ecc71"),
-            _ => Color.FromArgb("#2c3e50")
-        };
-
+    
+        // Highlight the active mode button
         TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
-            ? Color.FromArgb("#e74c3c")
-            : Color.FromArgb("#3498db");
+            ? Color.FromArgb("#8BC34A")
+            : Color.FromArgb("#E0E0E0");
+        TeacherNotesButton.TextColor = _currentViewMode == "teacher"
+            ? Colors.White
+            : Color.FromArgb("#333333");
+    
         StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
-            ? Color.FromArgb("#e74c3c")
-            : Color.FromArgb("#2ecc71");
+            ? Color.FromArgb("#8BC34A")
+            : Color.FromArgb("#E0E0E0");
+        StudentAnswersButton.TextColor = _currentViewMode == "student"
+            ? Colors.White
+            : Color.FromArgb("#333333");
     }
 
     private void OnViewModeClicked(object sender, EventArgs e)
@@ -617,27 +620,29 @@ public partial class BookViewerPage : ContentPage
             StatusLabel.Text = "No student answers available for this page";
         }
     }
-
+    
     private void UpdateTeacherButton()
     {
-        if (TeacherNotesButton != null)
-        {
-            TeacherNotesButton.Text = _currentViewMode == "teacher" ? "👨‍🏫 Hide" : "👨‍🏫 Notes";
-            TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
-                ? Color.FromArgb("#e74c3c")
-                : Color.FromArgb("#3498db");
-        }
+        if (TeacherNotesButton == null) return;
+        TeacherNotesButton.Text = _currentViewMode == "teacher" ? "Hide Notes" : "Notes";
+        TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
+            ? Color.FromArgb("#8BC34A")
+            : Color.FromArgb("#E0E0E0");
+        TeacherNotesButton.TextColor = _currentViewMode == "teacher"
+            ? Colors.White
+            : Color.FromArgb("#333333");
     }
-
+    
     private void UpdateStudentButton()
     {
-        if (StudentAnswersButton != null)
-        {
-            StudentAnswersButton.Text = _currentViewMode == "student" ? "👨‍🎓 Hide" : "👨‍🎓 Answers";
-            StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
-                ? Color.FromArgb("#e74c3c")
-                : Color.FromArgb("#2ecc71");
-        }
+        if (StudentAnswersButton == null) return;
+        StudentAnswersButton.Text = _currentViewMode == "student" ? "Hide Answers" : "Answers";
+        StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
+            ? Color.FromArgb("#8BC34A")
+            : Color.FromArgb("#E0E0E0");
+        StudentAnswersButton.TextColor = _currentViewMode == "student"
+            ? Colors.White
+            : Color.FromArgb("#333333");
     }
 
     private async void OnExportPdfClicked(object sender, EventArgs e)
