@@ -23,7 +23,7 @@
                 </Label.GestureRecognizers>
             </Label>
 
-            <Label x:Name="Back" Grid.Column="1" 
+            <Label x:Name="TitleLabel" Grid.Column="1" 
                    Text="Main Page" TextColor="White" FontSize="18" FontAttributes="Bold"
                    VerticalOptions="Center"/>
         </Grid>
