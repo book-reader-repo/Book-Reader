@@ -54,6 +54,15 @@
                 <Button x:Name="DecryptButton" Grid.Column="6" Text="🔓 Decrypt" Clicked="OnDecryptClicked" BackgroundColor="#f39c12" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
                 <Button x:Name="SideBySideButton" Grid.Column="7" Text="📄 1/2" Clicked="OnSideBySideClicked" BackgroundColor="#2c3e50" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
                 <Button x:Name="ExportPdfButton" Grid.Column="8" Text="📄 PDF" Clicked="OnExportPdfClicked" BackgroundColor="#9b59b6" TextColor="White" IsEnabled="False" Padding="10,6" Margin="4,0,0,0"/>
+                <Button x:Name="GridButton" 
+                    Grid.Column="9"
+                    Text="▦ Grid" 
+                    Clicked="OnGridClicked"
+                    BackgroundColor="#16a085"
+                    TextColor="White"
+                    IsEnabled="False"
+                    Padding="10,6"
+                    Margin="4,0,0,0"/>
                 <Button x:Name="ZoomOutButton" Grid.Column="9" Text="🔍-" Clicked="OnZoomOutClicked" BackgroundColor="#2c3e50" TextColor="White" Padding="10,6" Margin="4,0,0,0"/>
                 <Label x:Name="ZoomLabel" Grid.Column="10" Text="1.0x" TextColor="#8899bb" FontSize="14" VerticalOptions="Center" HorizontalTextAlignment="Center" Padding="4,0" WidthRequest="40"/>
                 <Button x:Name="ZoomInButton" Grid.Column="11" Text="🔍+" Clicked="OnZoomInClicked" BackgroundColor="#2c3e50" TextColor="White" Padding="10,6" Margin="4,0,0,0"/>
