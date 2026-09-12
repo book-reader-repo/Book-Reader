@@ -26,7 +26,7 @@ namespace BookViewer.Views
             NavigationPage.SetHasNavigationBar(this, false);
             _pageFiles = pageFiles;
             _onPageSelected = onPageSelected;
-
+        
             LoadThumbnails(currentIndex);
         }
         private async void OnPageTapped(object sender, TappedEventArgs e)
@@ -78,7 +78,7 @@ namespace BookViewer.Views
             }
         
             PagesCollection.ItemsSource = _pages;
-            StatusText.Text = $"{_pages.Count}";
+            StatusText.Text = $"{_pages.Count} pages";
         }
         private int ParseStepIndex(string fileName)
         {
