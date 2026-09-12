@@ -24,9 +24,18 @@
                    VerticalOptions="Center"/>
             <Label Grid.Column="2" Text="✏" TextColor="White" FontSize="20" VerticalOptions="Center"/>
         </Grid>
-
-        <!-- Green hero banner -->
-        <Grid Grid.Row="1" BackgroundColor="#8BC34A" HeightRequest="120">
+        
+        <!-- Unit banner image (from units/unitUID_[ID].png) -->
+        <Image x:Name="UnitBannerImage"
+               Grid.Row="1"
+               Aspect="AspectFill"
+               HeightRequest="160"
+               HorizontalOptions="Fill"
+               BackgroundColor="#8BC34A"/>
+        
+        <!-- Fallback green bar (used only if banner file missing) -->
+        <Grid x:Name="UnitHeroFallback" Grid.Row="1" 
+              BackgroundColor="#8BC34A" HeightRequest="160" IsVisible="False">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
