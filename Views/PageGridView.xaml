@@ -11,12 +11,13 @@
               ColumnDefinitions="Auto,*,Auto">
 
             <Button Grid.Column="0"
-                    Text="Back"
+                    Text="◀ Back"
                     Clicked="OnCloseClicked"
                     BackgroundColor="Transparent"
                     TextColor="White"
                     FontSize="14"
                     Padding="8,4"
+                    FontAttributes="Bold"
                     VerticalOptions="Center"/>
 
             <Label Grid.Column="1"
