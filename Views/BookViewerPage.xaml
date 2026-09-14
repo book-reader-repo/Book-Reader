@@ -7,7 +7,7 @@
     <Grid RowDefinitions="Auto,Auto,*,Auto">
 
         <!-- Top bar (green) -->
-        <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="12,10"
+        <Grid Grid.Row="0" BackgroundColor="#FFEB3B" Padding="12,10"
               ColumnDefinitions="Auto,*,Auto">
 
             <Button Grid.Column="0"
