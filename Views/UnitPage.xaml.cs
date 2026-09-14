@@ -167,17 +167,16 @@ namespace BookViewer.Views
             ContentsTab.BackgroundColor = Colors.Transparent;
             ContentsTab.TextColor = Color.FromArgb("#666666");
         }
-        
+                
         private async void OnSectionTapped(object sender, EventArgs e)
         {
             if (((Grid)sender).BindingContext is SectionData section)
             {
-                // section.PageStart holds the folio number (e.g. "4")
                 int folio = 1;
                 if (int.TryParse(section.PageStart, out int f) && f > 0)
                     folio = f;
         
-                var viewer = new BookViewerPage(_bookFolder, folio);
+                var viewer = new BookViewerPage(_bookFolder, section.Id, folio);
                 await Navigation.PushAsync(viewer);
             }
         }
