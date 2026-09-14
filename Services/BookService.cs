@@ -273,69 +273,61 @@ namespace BookViewer
                 Log($"Sorted {_pageFiles.Count} page files");
 
                 // ============================================================
-                // Build pages.xml mapping: folio ↔ step file
+                // Build step file → index map
                 // ============================================================
                 _stepFileToIndex.Clear();
                 _folioToStepFile.Clear();
 
                 for (int i = 0; i < _pageFiles.Count; i++)
                 {
-                    var name = Path.GetFileNameWithoutExtension(_pageFiles[i]);
+                    var name = Path.GetFileNameWithoutExtension(_pageFiles[i]); // "steps_1"
+                    var dir = Path.GetDirectoryName(_pageFiles[i]) ?? "";
+
+                    // Key by filename (used when folders don't repeat step names)
                     if (!_stepFileToIndex.ContainsKey(name))
                         _stepFileToIndex[name] = i;
+
+                    // Also key by "parentDir/name" so we can disambiguate
+                    var parentName = Path.GetFileName(dir);
+                    var compositeKey = parentName + "/" + name;
+                    if (!_stepFileToIndex.ContainsKey(compositeKey))
+                        _stepFileToIndex[compositeKey] = i;
                 }
 
-                var pagesXmlCandidates = new List<string>();
-                var rootPagesXml = Path.Combine(folderPath, "pages.xml");
-                if (File.Exists(rootPagesXml)) pagesXmlCandidates.Add(rootPagesXml);
-
-                foreach (var stepFile in _pageFiles)
+                // ============================================================
+                // Parse book.xml for folio → step file mapping
+                // ============================================================
+                try
                 {
-                    var dir = Path.GetDirectoryName(stepFile) ?? "";
-                    var localPages = Path.Combine(dir, "pages.xml");
-                    if (File.Exists(localPages) && !pagesXmlCandidates.Contains(localPages))
-                        pagesXmlCandidates.Add(localPages);
-                }
+                    var bookDoc = new XmlDocument();
+                    var xmlText = await File.ReadAllTextAsync(bookXmlPath);
 
-                foreach (var pagesXmlPath in pagesXmlCandidates)
-                {
-                    try
+                    var trimmedXml = xmlText.TrimStart();
+                    if (!trimmedXml.StartsWith("<book") && !trimmedXml.StartsWith("<?xml"))
+                        xmlText = $"<root>{xmlText}</root>";
+
+                    bookDoc.LoadXml(xmlText);
+
+                    var pageNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail/page");
+                    if (pageNodes != null)
                     {
-                        var pagesContent = await File.ReadAllTextAsync(pagesXmlPath);
-
-                        // pages.xml may be a bare sequence of <page> elements
-                        // without a wrapping root. Wrap it.
-                        var trimmed = pagesContent.TrimStart();
-                        if (!trimmed.StartsWith("<?xml") && !trimmed.StartsWith("<pages") &&
-                            !(trimmed.StartsWith("<") && trimmed.Contains("</pages>")))
+                        foreach (XmlNode node in pageNodes)
                         {
-                            pagesContent = $"<pages>{pagesContent}</pages>";
-                        }
-
-                        var pagesDoc = new XmlDocument();
-                        pagesDoc.LoadXml(pagesContent);
-
-                        var pageNodes = pagesDoc.SelectNodes("//page");
-                        if (pageNodes != null)
-                        {
-                            foreach (XmlNode node in pageNodes)
+                            var folioStr = node.Attributes?["folio"]?.Value ?? "";
+                            var file = node.Attributes?["file"]?.Value ?? "";
+                            if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
                             {
-                                var folioStr = node.Attributes?["folio"]?.Value ?? "";
-                                var file = node.Attributes?["file"]?.Value ?? "";
-                                if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
-                                {
-                                    _folioToStepFile[folio] = file;
-                                }
+                                _folioToStepFile[folio] = file;
                             }
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Log($"Error parsing {pagesXmlPath}: {ex.Message}");
-                    }
-                }
 
-                Log($"Built folio map: {_folioToStepFile.Count} entries");
+                    Log($"Built folio map from book.xml: {_folioToStepFile.Count} entries");
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error parsing folio map from book.xml: {ex.Message}");
+                }
 
                 OnPagesLoaded?.Invoke(this, _pageFiles);
 
@@ -395,10 +387,10 @@ namespace BookViewer
                     try
                     {
                         var fileName = Path.GetFileName(file);
-                        var content = await File.ReadAllTextAsync(file);
-                        bool isEncrypted = _decryptionService.IsEncrypted(content);
+                        var fileContent = await File.ReadAllTextAsync(file);
+                        bool isEncrypted = _decryptionService.IsEncrypted(fileContent);
 
-                        Log($"  [XML/HTM] {fileName}: {content.Length} bytes, encrypted={isEncrypted}");
+                        Log($"  [XML/HTM] {fileName}: {fileContent.Length} bytes, encrypted={isEncrypted}");
 
                         if (!isEncrypted)
                         {
@@ -406,7 +398,7 @@ namespace BookViewer
                             continue;
                         }
 
-                        string decryptedContent = _decryptionService.DecryptXmlOrHtm(content, fileName);
+                        string decryptedContent = _decryptionService.DecryptXmlOrHtm(fileContent, fileName);
                         await File.WriteAllTextAsync(file, decryptedContent);
                         decryptedCount++;
                         Log($"    ✓ Decrypted {fileName} → {decryptedContent.Length} bytes");
@@ -422,13 +414,13 @@ namespace BookViewer
                     try
                     {
                         var fileName = Path.GetFileName(file);
-                        var content = await File.ReadAllTextAsync(file);
+                        var fileContent = await File.ReadAllTextAsync(file);
 
-                        bool isDecrypted = content.Contains("<") && content.Contains(">") &&
-                                           (content.Contains("</") || content.Contains("/>")) &&
-                                           (content.Contains("class=") || content.Contains("<div") || content.Contains("id="));
+                        bool isDecrypted = fileContent.Contains("<") && fileContent.Contains(">") &&
+                                           (fileContent.Contains("</") || fileContent.Contains("/>")) &&
+                                           (fileContent.Contains("class=") || fileContent.Contains("<div") || fileContent.Contains("id="));
 
-                        Log($"  [HTML] {fileName}: {content.Length} bytes, looksDecrypted={isDecrypted}");
+                        Log($"  [HTML] {fileName}: {fileContent.Length} bytes, looksDecrypted={isDecrypted}");
 
                         if (isDecrypted)
                         {
@@ -436,7 +428,7 @@ namespace BookViewer
                             continue;
                         }
 
-                        string decryptedContent = _decryptionService.DecryptWithKey(content, bookKey);
+                        string decryptedContent = _decryptionService.DecryptWithKey(fileContent, bookKey);
                         await File.WriteAllTextAsync(file, decryptedContent);
                         htmlDecryptedCount++;
                         Log($"    ✓ Decrypted {fileName} → {decryptedContent.Length} bytes");
