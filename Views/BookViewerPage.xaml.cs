@@ -161,32 +161,36 @@ public partial class BookViewerPage : ContentPage
                 if (_startFolio > 0)
                 {
                     int idx = -1;
-
+                
                     // Prefer section-scoped lookup
                     if (!string.IsNullOrEmpty(_targetSectionId))
                     {
                         idx = _bookService.GetIndexForSectionFolio(_targetSectionId, _startFolio);
                         Log($"Section {_targetSectionId} folio {_startFolio} → index {idx}");
                     }
-
+                
                     // Fallback: global folio map
                     if (idx < 0)
                     {
                         idx = _bookService.GetIndexForFolio(_startFolio);
                         Log($"Global folio {_startFolio} → index {idx}");
                     }
-
-                    // Last resort: treat folio as 1-based index
-                    if (idx < 0 && _startFolio <= _bookService.PageFiles.Count)
+                
+                    // Last resort: treat folio as 1-based index, but subtract 1
+                    // (folios start at 2 for page 1, so subtract 1 to get the array index)
+                    if (idx < 0)
                     {
                         idx = _startFolio - 1;
                         Log($"Fallback: treating {_startFolio} as index {idx}");
                     }
-
-                    if (idx >= 0 && idx < _bookService.PageFiles.Count)
-                    {
-                        await _bookService.LoadPageAsync(idx);
-                    }
+                
+                    // Clamp to valid range
+                    if (idx < 0) idx = 0;
+                    if (idx >= _bookService.PageFiles.Count)
+                        idx = _bookService.PageFiles.Count - 1;
+                
+                    Log($"Final index: {idx}");
+                    await _bookService.LoadPageAsync(idx);
                 }
             }
             else
