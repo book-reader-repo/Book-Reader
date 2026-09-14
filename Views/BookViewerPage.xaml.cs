@@ -22,6 +22,7 @@ public partial class BookViewerPage : ContentPage
     private string _currentViewMode = "content";
     private bool _bookLoaded = false;
     private int _startFolio = 1;
+    private string _targetSectionId;
 
     private static readonly object _logLock = new object();
     private static string _logFilePath = null;
@@ -159,9 +160,23 @@ public partial class BookViewerPage : ContentPage
 
                 if (_startFolio > 0)
                 {
-                    int idx = _bookService.GetIndexForFolio(_startFolio);
-                    Log($"Folio {_startFolio} → index {idx}");
+                    int idx = -1;
 
+                    // Prefer section-scoped lookup
+                    if (!string.IsNullOrEmpty(_targetSectionId))
+                    {
+                        idx = _bookService.GetIndexForSectionFolio(_targetSectionId, _startFolio);
+                        Log($"Section {_targetSectionId} folio {_startFolio} → index {idx}");
+                    }
+
+                    // Fallback: global folio map
+                    if (idx < 0)
+                    {
+                        idx = _bookService.GetIndexForFolio(_startFolio);
+                        Log($"Global folio {_startFolio} → index {idx}");
+                    }
+
+                    // Last resort: treat folio as 1-based index
                     if (idx < 0 && _startFolio <= _bookService.PageFiles.Count)
                     {
                         idx = _startFolio - 1;
@@ -179,6 +194,15 @@ public partial class BookViewerPage : ContentPage
                 await DisplayAlert("Error", "Failed to load book", "OK");
             }
         };
+    }
+
+    /// <summary>
+    /// Section-scoped constructor: jumps to the first page of the given section.
+    /// </summary>
+    public BookViewerPage(string bookFolder, string sectionId, int startFolio)
+        : this(bookFolder, startFolio)
+    {
+        _targetSectionId = sectionId;
     }
 
     private async void LoadTeacherView()
