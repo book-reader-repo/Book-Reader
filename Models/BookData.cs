@@ -15,10 +15,22 @@ namespace BookViewer.Models
         public Dictionary<string, List<SectionData>> UnitSections { get; set; } = new();
         public List<SectionData> AllSections { get; set; } = new();
 
+        /// <summary>folio → step file basename (e.g. 2 → "steps_1")</summary>
+        public Dictionary<int, string> FolioToStepFile { get; set; } = new();
+
         public void LoadFromXml(string xmlContent, string folderPath)
         {
             FolderPath = folderPath;
+
             var doc = new XmlDocument();
+
+            // book.xml may be a bare sequence of top-level nodes without a root
+            var trimmed = xmlContent.TrimStart();
+            if (!trimmed.StartsWith("<book") && !trimmed.StartsWith("<?xml"))
+            {
+                xmlContent = $"<root>{xmlContent}</root>";
+            }
+
             doc.LoadXml(xmlContent);
 
             var bookNode = doc.SelectSingleNode("//book");
@@ -45,7 +57,7 @@ namespace BookViewer.Models
                 }
             }
 
-            // Sections
+            // Sections + their nested <page> entries
             var sectionDetailNodes = doc.SelectNodes("//sectiondetails/sectiondetail");
             if (sectionDetailNodes != null)
             {
@@ -55,8 +67,29 @@ namespace BookViewer.Models
                     {
                         Id = node.Attributes?["id"]?.Value ?? "",
                         Name = node.Attributes?["name"]?.Value ?? "",
-                        PageStart = node.Attributes?["page"]?.Value ?? ""
+                        PageStart = node.Attributes?["pagestart"]?.Value ?? ""
                     };
+
+                    // Parse nested <page file="steps_1" folio="2"/>
+                    var pageNodes = node.SelectNodes(".//page");
+                    if (pageNodes != null)
+                    {
+                        foreach (XmlNode pageNode in pageNodes)
+                        {
+                            var file = pageNode.Attributes?["file"]?.Value ?? "";
+                            var folioStr = pageNode.Attributes?["folio"]?.Value ?? "";
+
+                            if (!string.IsNullOrEmpty(file))
+                                section.StepFiles.Add(file);   // "steps_1"
+
+                            if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
+                            {
+                                if (!FolioToStepFile.ContainsKey(folio))
+                                    FolioToStepFile[folio] = file;
+                            }
+                        }
+                    }
+
                     AllSections.Add(section);
                 }
             }
@@ -100,16 +133,16 @@ namespace BookViewer.Models
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string PageStart { get; set; } = "";
+        public List<string> StepFiles { get; set; } = new();   // from nested <page>
         public List<ResourceData> Resources { get; set; } = new();
-        public List<string> StepFiles { get; set; } = new();
     }
 
     public class ResourceData
     {
-        public string Type { get; set; } = "";       // "audio", "video", "doc", "link"
+        public string Type { get; set; } = "";
         public string Description { get; set; } = "";
         public string PageNumber { get; set; } = "";
-        public string Path { get; set; } = "";       // resolved local or remote path
+        public string Path { get; set; } = "";
         public string Icon { get; set; } = "";
     }
 }
