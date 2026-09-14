@@ -10,29 +10,28 @@
         <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="16,8"
               ColumnDefinitions="Auto,*,Auto,Auto">
             
-            <Image Grid.Column="0"
-                   Source="logo.png"
-                   HeightRequest="36"
-                   Aspect="AspectFit"
+            <Label Grid.Column="1" Text="Back" TextColor="White" FontSize="18" FontAttributes="Bold"
                    VerticalOptions="Center"/>
 
             <Button Grid.Column="2"
-                    Text=" ⟳ Reload"
+                    Text=" ↻ Reload"
                     Clicked="OnRefreshClicked"
                     BackgroundColor="Transparent"
                     TextColor="White"
                     FontSize="18"
                     Padding="10,6"
                     Margin="0,0,8,0"
+                    FontAttributes="Bold"
                     VerticalOptions="Center"/>
 
             <Button Grid.Column="3"
-                    Text="🢃 Download"
+                    Text=" ⬇︎ Download"
                     Clicked="OnDownloadClicked"
                     BackgroundColor="Transparent"
                     TextColor="White"
                     FontSize="18"
                     Padding="10,6"
+                    FontAttributes="Bold"
                     VerticalOptions="Center"/>
         </Grid>
 
@@ -53,7 +52,7 @@
                     <DataTemplate>
                         <VerticalStackLayout WidthRequest="160" Spacing="10">
                             <Frame Padding="0" CornerRadius="20"
-                                   WidthRequest="160" HeightRequest="160"
+                                   WidthRequest="160" HeightRequest="180"
                                    HorizontalOptions="Center"
                                    BackgroundColor="#FFFFFF"
                                    HasShadow="False"
@@ -64,7 +63,7 @@
                             </Frame>
                             <Label Text="{Binding DisplayName}"
                                    FontSize="12"
-                                   TextColor="#333"
+                                   TextColor="Transparent"
                                    HorizontalTextAlignment="Center"
                                    LineBreakMode="TailTruncation"
                                    MaxLines="2"/>
