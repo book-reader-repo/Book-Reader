@@ -11,6 +11,7 @@ namespace BookViewer.Models
         public string Title { get; set; } = "";
         public string CoverPath { get; set; } = "";
         public string FolderPath { get; set; } = "";
+
         public List<UnitData> Units { get; set; } = new();
         public Dictionary<string, List<SectionData>> UnitSections { get; set; } = new();
         public List<SectionData> AllSections { get; set; } = new();
@@ -22,17 +23,18 @@ namespace BookViewer.Models
         {
             FolderPath = folderPath;
 
-            var doc = new XmlDocument();
-
             // book.xml may be a bare sequence of top-level nodes without a root
+            // (unitdetails, sectiondetails, etc.). Wrap in <root> if needed.
             var trimmed = xmlContent.TrimStart();
-            if (!trimmed.StartsWith("<book") && !trimmed.StartsWith("<?xml"))
+            if (!trimmed.StartsWith("<book") && !trimmed.StartsWith("<?xml") && !trimmed.StartsWith("<root"))
             {
                 xmlContent = $"<root>{xmlContent}</root>";
             }
 
+            var doc = new XmlDocument();
             doc.LoadXml(xmlContent);
 
+            // Book metadata
             var bookNode = doc.SelectSingleNode("//book");
             if (bookNode != null)
             {
@@ -41,7 +43,7 @@ namespace BookViewer.Models
                 CoverPath = bookNode.Attributes?["coverpath"]?.Value ?? "";
             }
 
-            // Units
+            // Units (from <modules><module><unit>)
             var unitNodes = doc.SelectNodes("//unit");
             if (unitNodes != null)
             {
@@ -52,8 +54,13 @@ namespace BookViewer.Models
                         Id = node.Attributes?["id"]?.Value ?? "",
                         Title = node.Attributes?["name"]?.Value ?? ""
                     };
-                    Units.Add(unit);
-                    UnitSections[unit.Id] = new List<SectionData>();
+
+                    // Avoid duplicates (some books list units in multiple places)
+                    if (!Units.Any(u => u.Id == unit.Id))
+                    {
+                        Units.Add(unit);
+                        UnitSections[unit.Id] = new List<SectionData>();
+                    }
                 }
             }
 
@@ -70,7 +77,7 @@ namespace BookViewer.Models
                         PageStart = node.Attributes?["pagestart"]?.Value ?? ""
                     };
 
-                    // Parse nested <page file="steps_1" folio="2"/>
+                    // Parse nested <page file="steps_1" folio="2" seq="1" .../>
                     var pageNodes = node.SelectNodes(".//page");
                     if (pageNodes != null)
                     {
@@ -94,7 +101,7 @@ namespace BookViewer.Models
                 }
             }
 
-            // Link sections to units
+            // Link sections to units via <unitdetail><sectiongroup><sectionset><section id="..."/>
             var unitDetailNodes = doc.SelectNodes("//unitdetail");
             if (unitDetailNodes != null)
             {
@@ -133,7 +140,7 @@ namespace BookViewer.Models
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string PageStart { get; set; } = "";
-        public List<string> StepFiles { get; set; } = new();   // from nested <page>
+        public List<string> StepFiles { get; set; } = new();   // from nested <page file="..."/>
         public List<ResourceData> Resources { get; set; } = new();
     }
 
