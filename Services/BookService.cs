@@ -30,8 +30,14 @@ namespace BookViewer
         private bool _showTeacherNotes = false;
         private bool _showStudentAnswers = false;
 
+        // "steps_1" or "s_117368/steps_1" → global index in _pageFiles
         private readonly Dictionary<string, int> _stepFileToIndex = new();
+
+        // global folio → step file (first occurrence)
         private readonly Dictionary<int, string> _folioToStepFile = new();
+
+        // sectionId → (folio → step file) from that section's pages.xml
+        private readonly Dictionary<string, Dictionary<int, string>> _sectionFolioMap = new();
 
         private static readonly object _logLock = new object();
         private static string _logFilePath = null;
@@ -171,6 +177,29 @@ namespace BookViewer
             return -1;
         }
 
+        public int GetIndexForSectionFolio(string sectionId, int folio)
+        {
+            if (string.IsNullOrEmpty(sectionId)) return -1;
+
+            // Look up folio → step file within this section
+            if (_sectionFolioMap.TryGetValue(sectionId, out var folioMap))
+            {
+                if (folioMap.TryGetValue(folio, out var stepFile))
+                {
+                    // Prefer composite key "s_117368/steps_1"
+                    var composite = sectionId + "/" + stepFile;
+                    if (_stepFileToIndex.TryGetValue(composite, out int idx))
+                        return idx;
+
+                    // Fallback: filename-only (if unique in the book)
+                    if (_stepFileToIndex.TryGetValue(stepFile, out int idx2))
+                        return idx2;
+                }
+            }
+
+            return -1;
+        }
+
         public async Task<bool> LoadBookAsync(string folderPath)
         {
             try
@@ -273,61 +302,133 @@ namespace BookViewer
                 Log($"Sorted {_pageFiles.Count} page files");
 
                 // ============================================================
-                // Build step file → index map
+                // Build maps:
+                //   _stepFileToIndex: "s_117368/steps_1" → index
+                //                     "steps_1"          → first occurrence
+                //   _sectionFolioMap: sectionId → (folio → step file)
                 // ============================================================
                 _stepFileToIndex.Clear();
                 _folioToStepFile.Clear();
+                _sectionFolioMap.Clear();
 
                 for (int i = 0; i < _pageFiles.Count; i++)
                 {
-                    var name = Path.GetFileNameWithoutExtension(_pageFiles[i]); // "steps_1"
-                    var dir = Path.GetDirectoryName(_pageFiles[i]) ?? "";
+                    var name = Path.GetFileNameWithoutExtension(_pageFiles[i]);
+                    var parentDir = Path.GetFileName(Path.GetDirectoryName(_pageFiles[i]) ?? "");
+                    var composite = parentDir + "/" + name;
 
-                    // Key by filename (used when folders don't repeat step names)
+                    if (!_stepFileToIndex.ContainsKey(composite))
+                        _stepFileToIndex[composite] = i;
+
                     if (!_stepFileToIndex.ContainsKey(name))
                         _stepFileToIndex[name] = i;
-
-                    // Also key by "parentDir/name" so we can disambiguate
-                    var parentName = Path.GetFileName(dir);
-                    var compositeKey = parentName + "/" + name;
-                    if (!_stepFileToIndex.ContainsKey(compositeKey))
-                        _stepFileToIndex[compositeKey] = i;
                 }
 
-                // ============================================================
-                // Parse book.xml for folio → step file mapping
-                // ============================================================
+                // ---- Parse book.xml for section IDs ----
+                List<string> sectionIds = new();
                 try
                 {
                     var bookDoc = new XmlDocument();
                     var xmlText = await File.ReadAllTextAsync(bookXmlPath);
 
                     var trimmedXml = xmlText.TrimStart();
-                    if (!trimmedXml.StartsWith("<book") && !trimmedXml.StartsWith("<?xml"))
+                    if (!trimmedXml.StartsWith("<book") && !trimmedXml.StartsWith("<?xml") && !trimmedXml.StartsWith("<root"))
                         xmlText = $"<root>{xmlText}</root>";
 
                     bookDoc.LoadXml(xmlText);
 
-                    var pageNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail/page");
-                    if (pageNodes != null)
+                    var sectionNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail");
+                    if (sectionNodes != null)
                     {
-                        foreach (XmlNode node in pageNodes)
+                        foreach (XmlNode node in sectionNodes)
+                        {
+                            var id = node.Attributes?["id"]?.Value ?? "";
+                            if (!string.IsNullOrEmpty(id) && !sectionIds.Contains(id))
+                                sectionIds.Add(id);
+                        }
+                    }
+
+                    Log($"book.xml: {sectionIds.Count} sections found");
+
+                    // Also build a global folio map from book.xml as a fallback
+                    var bookPageNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail/page");
+                    if (bookPageNodes != null)
+                    {
+                        foreach (XmlNode node in bookPageNodes)
                         {
                             var folioStr = node.Attributes?["folio"]?.Value ?? "";
                             var file = node.Attributes?["file"]?.Value ?? "";
                             if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
                             {
-                                _folioToStepFile[folio] = file;
+                                if (!_folioToStepFile.ContainsKey(folio))
+                                    _folioToStepFile[folio] = file;
                             }
                         }
                     }
-
-                    Log($"Built folio map from book.xml: {_folioToStepFile.Count} entries");
                 }
                 catch (Exception ex)
                 {
-                    Log($"Error parsing folio map from book.xml: {ex.Message}");
+                    Log($"Error parsing book.xml for section list: {ex.Message}");
                 }
+
+                // ---- For each section folder, read pages.xml ----
+                foreach (var sectionId in sectionIds)
+                {
+                    var sectionDir = Path.Combine(folderPath, sectionId);
+                    if (!Directory.Exists(sectionDir))
+                        sectionDir = folderPath;
+
+                    var pagesXmlPath = Path.Combine(sectionDir, "pages.xml");
+                    if (!File.Exists(pagesXmlPath))
+                    {
+                        Log($"No pages.xml for section {sectionId}");
+                        continue;
+                    }
+
+                    try
+                    {
+                        var pagesContent = await File.ReadAllTextAsync(pagesXmlPath);
+
+                        // Repair malformed <page ...> entries missing </page> or />
+                        pagesContent = Regex.Replace(
+                            pagesContent,
+                            @"<page\s+([^>/]*?)(?<!/)\s*>",
+                            "<page $1 />",
+                            RegexOptions.IgnoreCase);
+
+                        var trimmed = pagesContent.TrimStart();
+                        if (!trimmed.StartsWith("<?xml") && !trimmed.StartsWith("<pages"))
+                            pagesContent = $"<pages>{pagesContent}</pages>";
+
+                        var pagesDoc = new XmlDocument();
+                        pagesDoc.LoadXml(pagesContent);
+
+                        var folioMap = new Dictionary<int, string>();
+                        var pageNodes = pagesDoc.SelectNodes("//page");
+                        if (pageNodes != null)
+                        {
+                            foreach (XmlNode pageNode in pageNodes)
+                            {
+                                var folioStr = pageNode.Attributes?["folio"]?.Value ?? "";
+                                var file = pageNode.Attributes?["file"]?.Value ?? "";
+                                if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
+                                {
+                                    folioMap[folio] = file;
+                                }
+                            }
+                        }
+
+                        _sectionFolioMap[sectionId] = folioMap;
+                        Log($"Section {sectionId}: {folioMap.Count} folio entries");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Error parsing {pagesXmlPath}: {ex.Message}");
+                    }
+                }
+
+                Log($"Built section folio map: {_sectionFolioMap.Count} sections");
+                Log($"Built global folio map: {_folioToStepFile.Count} entries");
 
                 OnPagesLoaded?.Invoke(this, _pageFiles);
 
@@ -860,8 +961,7 @@ namespace BookViewer
 
         private string ConvertImageToBase64HighQuality(string imagePath)
         {
-            try
-            {
+            try            {
                 if (_imageCache.TryGetValue(imagePath, out var cached)) return cached;
 
                 var bytes = File.ReadAllBytes(imagePath);
