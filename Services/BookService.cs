@@ -587,61 +587,79 @@ namespace BookViewer
         public async Task LoadPageAsync(int index)
         {
             if (index < 0 || index >= _pageFiles.Count) return;
-
+        
             try
             {
                 _currentPageIndex = index;
                 var filePath = _pageFiles[index];
                 var fileName = Path.GetFileName(filePath);
-
+                Log($"Loading page {index}: {fileName}");
+        
                 var content = await File.ReadAllTextAsync(filePath);
                 var processedHtml = await ProcessHtmlContent(content, filePath);
                 _currentPageHtml = processedHtml;
-
+        
                 if (_twoPageSpread && index + 1 < _pageFiles.Count)
                 {
-                    var nextFilePath = _pageFiles[index + 1];
-                    var nextContent = await File.ReadAllTextAsync(nextFilePath);
-                    _nextPageHtml = await ProcessHtmlContent(nextContent, nextFilePath);
+                    try
+                    {
+                        var nextFilePath = _pageFiles[index + 1];
+                        var nextContent = await File.ReadAllTextAsync(nextFilePath);
+                        _nextPageHtml = await ProcessHtmlContent(nextContent, nextFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Error loading next page for spread: {ex.Message}");
+                        _nextPageHtml = "";
+                    }
                 }
                 else
                 {
                     _nextPageHtml = "";
                 }
-
+        
                 OnPageChanged?.Invoke(this, processedHtml);
                 OnStatusChanged?.Invoke(this, $"Viewing: {fileName} ({index + 1}/{_pageFiles.Count})");
                 OnPagesLoaded?.Invoke(this, _pageFiles);
             }
             catch (Exception ex)
             {
-                Log($"ERROR loading page: {ex.Message}");
+                Log($"ERROR loading page {index}: {ex.Message}");
+                Log($"Stack: {ex.StackTrace}");
                 OnStatusChanged?.Invoke(this, $"Error loading page: {ex.Message}");
             }
         }
-
         private async Task<string> ProcessHtmlContent(string htmlContent, string filePath)
         {
             try
             {
                 string directory = Path.GetDirectoryName(filePath) ?? "";
                 string fileName = Path.GetFileName(filePath) ?? "";
-
+        
                 if (IsPureStepsFile(fileName) && fileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
                 {
                     string bgImage = GetStepBackgroundImage(filePath);
                     string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
-
+        
                     return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, "", "");
                 }
-
+        
                 return htmlContent;
             }
             catch (Exception ex)
             {
-                Log($"ERROR in ProcessHtmlContent: {ex.Message}");
-                return htmlContent;
+                Log($"ProcessHtmlContent error on {Path.GetFileName(filePath)}: {ex.Message}");
+                // Return a minimal fallback page instead of crashing
+                return $@"<!DOCTYPE html>
+        <html><head><meta charset='UTF-8'></head>
+        <body style='background:#E8E8E8;color:#333;font-family:sans-serif;padding:40px;'>
+        <div style='max-width:600px;margin:auto;background:#fff;padding:24px;border-radius:8px;'>
+        <h2>Unable to render page</h2>
+        <p>{Path.GetFileName(filePath)}</p>
+        <pre style='background:#f5f5f5;padding:12px;border-radius:4px;font-size:12px;'>{System.Net.WebUtility.HtmlEncode(ex.Message)}</pre>
+        </div>
+        </body></html>";
             }
         }
 
@@ -780,31 +798,64 @@ namespace BookViewer
                 return "";
             }
         }
-
         public string GetStepBackgroundImage(string filePath)
         {
-            var directory = Path.GetDirectoryName(filePath) ?? "";
-            var stepNumber = ParseStepIndex(Path.GetFileName(filePath));
-
-            var imagesPath = Path.Combine(directory, "images");
-            if (Directory.Exists(imagesPath))
+            try
             {
-                var imagePath = Path.Combine(imagesPath, $"steps_{stepNumber}.jpg");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
-
-                imagePath = Path.Combine(imagesPath, $"steps_{stepNumber}.png");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
-
-                imagePath = Path.Combine(imagesPath, $"step_{stepNumber}.jpg");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
-
-                imagePath = Path.Combine(imagesPath, $"step_{stepNumber}.png");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+                var directory = Path.GetDirectoryName(filePath) ?? "";
+                var stepNumber = ParseStepIndex(Path.GetFileName(filePath));
+        
+                var imagesPath = Path.Combine(directory, "images");
+                if (Directory.Exists(imagesPath) && stepNumber >= 0)
+                {
+                    // Try each candidate; return as soon as one exists
+                    var candidates = new[]
+                    {
+                        Path.Combine(imagesPath, $"steps_{stepNumber}.jpg"),
+                        Path.Combine(imagesPath, $"steps_{stepNumber}.jpeg"),
+                        Path.Combine(imagesPath, $"steps_{stepNumber}.png"),
+                        Path.Combine(imagesPath, $"step_{stepNumber}.jpg"),
+                        Path.Combine(imagesPath, $"step_{stepNumber}.jpeg"),
+                        Path.Combine(imagesPath, $"step_{stepNumber}.png"),
+                    };
+        
+                    foreach (var c in candidates)
+                    {
+                        if (File.Exists(c))
+                        {
+                            Log($"Background image found: {c} ({new FileInfo(c).Length} bytes)");
+                            return ConvertImageToBase64HighQuality(c);
+                        }
+                    }
+                }
+        
+                // Fallback: look for any image starting with the step name
+                if (Directory.Exists(imagesPath) && stepNumber >= 0)
+                {
+                    var pattern = $"*{stepNumber}*";
+                    var found = Directory.GetFiles(imagesPath, pattern)
+                        .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                                 || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+                                 || f.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(f => f.Length)
+                        .FirstOrDefault();
+        
+                    if (found != null)
+                    {
+                        Log($"Fallback image: {found}");
+                        return ConvertImageToBase64HighQuality(found);
+                    }
+                }
+        
+                Log($"No background image for step {stepNumber} in {imagesPath}");
+                return GetPlaceholderImage();
             }
-
-            return GetPlaceholderImage();
+            catch (Exception ex)
+            {
+                Log($"GetStepBackgroundImage error: {ex.Message}");
+                return GetPlaceholderImage();
+            }
         }
-
         public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
         {
             try
@@ -957,13 +1008,26 @@ namespace BookViewer
 
         private string GetPlaceholderImage()
             => "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%23ffffff'/%3E%3C/svg%3E";
-
+        private const long MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB per image
+        
         private string ConvertImageToBase64HighQuality(string imagePath)
         {
             try
             {
-                if (_imageCache.TryGetValue(imagePath, out var cached)) return cached;
-
+                if (string.IsNullOrEmpty(imagePath) || !File.Exists(imagePath))
+                    return GetPlaceholderImage();
+        
+                if (_imageCache.TryGetValue(imagePath, out var cached))
+                    return cached;
+        
+                var fileInfo = new FileInfo(imagePath);
+                if (fileInfo.Length > MAX_IMAGE_BYTES)
+                {
+                    Log($"Image too large ({fileInfo.Length} bytes), skipping: {imagePath}");
+                    _imageCache[imagePath] = GetPlaceholderImage();
+                    return GetPlaceholderImage();
+                }
+        
                 var bytes = File.ReadAllBytes(imagePath);
                 var extension = Path.GetExtension(imagePath).ToLower();
                 var mimeType = extension switch
@@ -976,14 +1040,15 @@ namespace BookViewer
                     ".svg" => "image/svg+xml",
                     _ => "image/jpeg"
                 };
-
+        
                 var base64 = Convert.ToBase64String(bytes);
                 var result = $"data:{mimeType};base64,{base64}";
                 _imageCache[imagePath] = result;
                 return result;
             }
-            catch
+            catch (Exception ex)
             {
+                Log($"ConvertImageToBase64 error: {ex.Message}");
                 return GetPlaceholderImage();
             }
         }
