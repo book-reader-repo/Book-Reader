@@ -30,7 +30,7 @@ namespace BookViewer
         private bool _showTeacherNotes = false;
         private bool _showStudentAnswers = false;
 
-        // "steps_1" or "s_117368/steps_1" → global index in _pageFiles
+        // "s_117368/steps_1" → global index in _pageFiles
         private readonly Dictionary<string, int> _stepFileToIndex = new();
 
         // global folio → step file (first occurrence)
@@ -38,6 +38,9 @@ namespace BookViewer
 
         // sectionId → (folio → step file) from that section's pages.xml
         private readonly Dictionary<string, Dictionary<int, string>> _sectionFolioMap = new();
+
+        // sectionId → global 0-based index of the section's first page (from book.xml seqindex)
+        private readonly Dictionary<string, int> _sectionFirstIndex = new();
 
         private static readonly object _logLock = new object();
         private static string _logFilePath = null;
@@ -181,22 +184,27 @@ namespace BookViewer
         {
             if (string.IsNullOrEmpty(sectionId)) return -1;
 
-            // Look up folio → step file within this section
             if (_sectionFolioMap.TryGetValue(sectionId, out var folioMap))
             {
                 if (folioMap.TryGetValue(folio, out var stepFile))
                 {
-                    // Prefer composite key "s_117368/steps_1"
                     var composite = sectionId + "/" + stepFile;
                     if (_stepFileToIndex.TryGetValue(composite, out int idx))
                         return idx;
 
-                    // Fallback: filename-only (if unique in the book)
                     if (_stepFileToIndex.TryGetValue(stepFile, out int idx2))
                         return idx2;
                 }
             }
 
+            return -1;
+        }
+
+        public int GetFirstIndexOfSection(string sectionId)
+        {
+            if (string.IsNullOrEmpty(sectionId)) return -1;
+            if (_sectionFirstIndex.TryGetValue(sectionId, out int idx))
+                return idx;
             return -1;
         }
 
@@ -302,14 +310,12 @@ namespace BookViewer
                 Log($"Sorted {_pageFiles.Count} page files");
 
                 // ============================================================
-                // Build maps:
-                //   _stepFileToIndex: "s_117368/steps_1" → index
-                //                     "steps_1"          → first occurrence
-                //   _sectionFolioMap: sectionId → (folio → step file)
+                // Build maps
                 // ============================================================
                 _stepFileToIndex.Clear();
                 _folioToStepFile.Clear();
                 _sectionFolioMap.Clear();
+                _sectionFirstIndex.Clear();
 
                 for (int i = 0; i < _pageFiles.Count; i++)
                 {
@@ -324,8 +330,7 @@ namespace BookViewer
                         _stepFileToIndex[name] = i;
                 }
 
-                // ---- Parse book.xml for section IDs ----
-                List<string> sectionIds = new();
+                // ---- Parse book.xml: section → first seqindex, plus folio map ----
                 try
                 {
                     var bookDoc = new XmlDocument();
@@ -340,64 +345,69 @@ namespace BookViewer
                     var sectionNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail");
                     if (sectionNodes != null)
                     {
-                        foreach (XmlNode node in sectionNodes)
+                        foreach (XmlNode sectionNode in sectionNodes)
                         {
-                            var id = node.Attributes?["id"]?.Value ?? "";
-                            if (!string.IsNullOrEmpty(id) && !sectionIds.Contains(id))
-                                sectionIds.Add(id);
-                        }
-                    }
+                            var sectionId = sectionNode.Attributes?["id"]?.Value ?? "";
+                            if (string.IsNullOrEmpty(sectionId)) continue;
 
-                    Log($"book.xml: {sectionIds.Count} sections found");
-
-                    // Also build a global folio map from book.xml as a fallback
-                    var bookPageNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail/page");
-                    if (bookPageNodes != null)
-                    {
-                        foreach (XmlNode node in bookPageNodes)
-                        {
-                            var folioStr = node.Attributes?["folio"]?.Value ?? "";
-                            var file = node.Attributes?["file"]?.Value ?? "";
-                            if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
+                            var firstPageNode = sectionNode.SelectSingleNode(".//sectionorders/page");
+                            if (firstPageNode != null)
                             {
-                                if (!_folioToStepFile.ContainsKey(folio))
-                                    _folioToStepFile[folio] = file;
+                                var seqIndexStr = firstPageNode.Attributes?["seqindex"]?.Value ?? "";
+                                if (int.TryParse(seqIndexStr, out int seqIndex))
+                                {
+                                    _sectionFirstIndex[sectionId] = seqIndex;
+                                }
+                            }
+
+                            var pageNodes = sectionNode.SelectNodes(".//sectionorders/page");
+                            if (pageNodes != null)
+                            {
+                                foreach (XmlNode p in pageNodes)
+                                {
+                                    var folioStr = p.Attributes?["folio"]?.Value ?? "";
+                                    var file = p.Attributes?["file"]?.Value ?? "";
+                                    if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
+                                    {
+                                        if (!_folioToStepFile.ContainsKey(folio))
+                                            _folioToStepFile[folio] = file;
+                                    }
+                                }
                             }
                         }
                     }
+
+                    Log($"book.xml: {_sectionFirstIndex.Count} sections mapped, {_folioToStepFile.Count} folios");
                 }
                 catch (Exception ex)
                 {
-                    Log($"Error parsing book.xml for section list: {ex.Message}");
+                    Log($"Error parsing book.xml: {ex.Message}");
                 }
 
-                // ---- For each section folder, read pages.xml ----
-                foreach (var sectionId in sectionIds)
+                // ---- For each section, read pages.xml as a fallback ----
+                var sectionFolders = Directory.GetDirectories(folderPath, "s_*");
+                foreach (var sectionDir in sectionFolders)
                 {
-                    var sectionDir = Path.Combine(folderPath, sectionId);
-                    if (!Directory.Exists(sectionDir))
-                        sectionDir = folderPath;
-
+                    var sectionId = Path.GetFileName(sectionDir);
                     var pagesXmlPath = Path.Combine(sectionDir, "pages.xml");
-                    if (!File.Exists(pagesXmlPath))
-                    {
-                        Log($"No pages.xml for section {sectionId}");
-                        continue;
-                    }
+                    if (!File.Exists(pagesXmlPath)) continue;
 
                     try
                     {
                         var pagesContent = await File.ReadAllTextAsync(pagesXmlPath);
 
-                        // Repair malformed <page ...> entries missing </page> or />
-                        pagesContent = Regex.Replace(
-                            pagesContent,
-                            @"<page\s+([^>/]*?)(?<!/)\s*>",
-                            "<page $1 />",
-                            RegexOptions.IgnoreCase);
-
+                        // Strip XML declaration if present
                         var trimmed = pagesContent.TrimStart();
-                        if (!trimmed.StartsWith("<?xml") && !trimmed.StartsWith("<pages"))
+                        if (trimmed.StartsWith("<?xml"))
+                        {
+                            var idx = pagesContent.IndexOf("?>");
+                            if (idx >= 0)
+                                pagesContent = pagesContent.Substring(idx + 2);
+                            trimmed = pagesContent.TrimStart();
+                        }
+
+                        // Wrap bare <page>...</page> sequence in a root
+                        if (!trimmed.StartsWith("<pages"))
                             pagesContent = $"<pages>{pagesContent}</pages>";
 
                         var pagesDoc = new XmlDocument();
@@ -419,7 +429,6 @@ namespace BookViewer
                         }
 
                         _sectionFolioMap[sectionId] = folioMap;
-                        Log($"Section {sectionId}: {folioMap.Count} folio entries");
                     }
                     catch (Exception ex)
                     {
@@ -491,8 +500,6 @@ namespace BookViewer
                         var fileContent = await File.ReadAllTextAsync(file);
                         bool isEncrypted = _decryptionService.IsEncrypted(fileContent);
 
-                        Log($"  [XML/HTM] {fileName}: {fileContent.Length} bytes, encrypted={isEncrypted}");
-
                         if (!isEncrypted)
                         {
                             alreadyDecryptedCount++;
@@ -502,11 +509,10 @@ namespace BookViewer
                         string decryptedContent = _decryptionService.DecryptXmlOrHtm(fileContent, fileName);
                         await File.WriteAllTextAsync(file, decryptedContent);
                         decryptedCount++;
-                        Log($"    ✓ Decrypted {fileName} → {decryptedContent.Length} bytes");
                     }
                     catch (Exception ex)
                     {
-                        Log($"    ✗ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
+                        Log($"Error decrypting {Path.GetFileName(file)}: {ex.Message}");
                     }
                 }
 
@@ -521,8 +527,6 @@ namespace BookViewer
                                            (fileContent.Contains("</") || fileContent.Contains("/>")) &&
                                            (fileContent.Contains("class=") || fileContent.Contains("<div") || fileContent.Contains("id="));
 
-                        Log($"  [HTML] {fileName}: {fileContent.Length} bytes, looksDecrypted={isDecrypted}");
-
                         if (isDecrypted)
                         {
                             htmlSkippedCount++;
@@ -532,22 +536,18 @@ namespace BookViewer
                         string decryptedContent = _decryptionService.DecryptWithKey(fileContent, bookKey);
                         await File.WriteAllTextAsync(file, decryptedContent);
                         htmlDecryptedCount++;
-                        Log($"    ✓ Decrypted {fileName} → {decryptedContent.Length} bytes");
                     }
                     catch (Exception ex)
                     {
-                        Log($"    ✗ Error decrypting {Path.GetFileName(file)}: {ex.Message}");
+                        Log($"Error decrypting {Path.GetFileName(file)}: {ex.Message}");
                     }
                 }
 
-                Log("=== DECRYPT BOOK FILES END ===");
-                Log($"  XML/HTM: {decryptedCount} decrypted, {alreadyDecryptedCount} already plain");
-                Log($"  HTML:    {htmlDecryptedCount} decrypted, {htmlSkippedCount} already plain");
+                Log($"Decrypt summary: XML/HTM {decryptedCount} decrypted, {alreadyDecryptedCount} plain; HTML {htmlDecryptedCount} decrypted, {htmlSkippedCount} plain");
             }
             catch (Exception ex)
             {
                 Log($"ERROR in DecryptBookFilesAsync: {ex.Message}");
-                Log($"Stack: {ex.StackTrace}");
             }
         }
 
@@ -559,7 +559,6 @@ namespace BookViewer
                 return;
             }
 
-            Log("=== DECRYPT BOOK (manual) ===");
             OnStatusChanged?.Invoke(this, "Decrypting book files...");
             await DecryptBookFilesAsync(_currentBookPath);
             OnStatusChanged?.Invoke(this, "Decryption complete! Reloading book...");
@@ -961,7 +960,8 @@ namespace BookViewer
 
         private string ConvertImageToBase64HighQuality(string imagePath)
         {
-            try            {
+            try
+            {
                 if (_imageCache.TryGetValue(imagePath, out var cached)) return cached;
 
                 var bytes = File.ReadAllBytes(imagePath);
