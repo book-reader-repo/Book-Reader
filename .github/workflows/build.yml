@@ -1,4 +1,4 @@
-name: Build Mobile Apps
+name: Debug Builds
 
 on:
   workflow_dispatch:
@@ -92,4 +92,44 @@ jobs:
         with:
           name: iOS-IPA-Debug
           path: ./publish-ios/*.ipa
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows App (Debug)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create global.json
+        shell: pwsh
+        run: |
+          '{ "sdk": { "version": "9.0.100", "rollForward": "latestFeature" } }' | Out-File -Encoding utf8 global.json
+
+      - name: Setup .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Install Windows Workload
+        run: |
+          dotnet workload install maui-windows
+
+      - name: Build Windows App
+        run: |
+          dotnet publish ./BookViewer.Maui.csproj `
+            -f net9.0-windows10.0.19041.0 `
+            -p:TargetFrameworks=net9.0-windows10.0.19041.0 `
+            -c Debug `
+            -p:RuntimeIdentifierOverride=win10-x64 `
+            -p:WindowsPackageType=None `
+            -p:GenerateAppInstallerFile=false `
+            -o ./publish-windows
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-App-Debug
+          path: ./publish-windows/**
           if-no-files-found: error
