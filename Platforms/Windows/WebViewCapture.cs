@@ -29,7 +29,12 @@ namespace BookViewer.Platforms.Windows
                 var userDataFolder = Path.Combine(Path.GetTempPath(), "BookViewerWebView2");
                 Directory.CreateDirectory(userDataFolder);
 
-                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                // WinRT WebView2 API uses CreateWithOptionsAsync, not CreateAsync
+                var options = new CoreWebView2EnvironmentOptions();
+                var env = await CoreWebView2Environment.CreateWithOptionsAsync(
+                    null,
+                    userDataFolder,
+                    options);
 
                 await webView.EnsureCoreWebView2Async(env);
 
