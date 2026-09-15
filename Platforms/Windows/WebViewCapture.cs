@@ -1,13 +1,10 @@
 #if WINDOWS
-using Microsoft.Maui.Controls;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using System;
 using System.IO;
 using System.Threading.Tasks;
 using Windows.Storage.Streams;
-using Windows.Graphics.Imaging;
-using Windows.Graphics.Display;
 
 namespace BookViewer.Platforms.Windows
 {
@@ -17,28 +14,33 @@ namespace BookViewer.Platforms.Windows
         {
             try
             {
-                // Create a hidden WebView2
                 var webView = new WebView2();
 
-                var tcs = new TaskCompletionSource<bool>();
-                webView.NavigationCompleted += (s, e) => tcs.TrySetResult(e.IsSuccess);
-
-                // Prepare the environment
+                // Create the WebView2 environment (browserExecutableFolder=null,
+                // userDataFolder=temp, options=null)
                 var userDataFolder = Path.Combine(Path.GetTempPath(), "BookViewerWebView2");
-                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                Directory.CreateDirectory(userDataFolder);
+
+                var env = await CoreWebView2Environment.CreateAsync(
+                    null,                 // browserExecutableFolder
+                    userDataFolder,       // userDataFolder
+                    null);                // environment options
+
                 await webView.EnsureCoreWebView2Async(env);
 
-                // Load the HTML
+                // Load HTML and wait for navigation to finish
+                var tcs = new TaskCompletionSource<bool>();
                 webView.NavigationCompleted += (s, e) => tcs.TrySetResult(true);
-                webView.NavigateToString(html);
 
+                webView.NavigateToString(html);
                 await tcs.Task;
-                await Task.Delay(800);   // let fonts/images settle
+                await Task.Delay(800); // let fonts/images settle
 
                 // Capture to stream
                 using var ms = new MemoryStream();
                 var stream = new InMemoryRandomAccessStream();
-                await webView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
+                await webView.CoreWebView2.CapturePreviewAsync(
+                    CoreWebView2CapturePreviewImageFormat.Png, stream);
 
                 stream.Seek(0);
                 var reader = new DataReader(stream.GetInputStreamAt(0));
