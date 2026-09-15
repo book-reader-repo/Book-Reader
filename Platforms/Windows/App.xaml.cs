@@ -1,6 +1,7 @@
 using Microsoft.Maui;
 using Microsoft.Maui.Hosting;
 using Microsoft.UI.Xaml;
+using BookViewer.Maui;   // <-- add this
 
 namespace BookViewer.WinUI
 {
