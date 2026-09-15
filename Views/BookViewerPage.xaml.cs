@@ -696,14 +696,16 @@ public partial class BookViewerPage : ContentPage
 
             pdfService.RenderPageToImageAsync = async (html) =>
             {
-#if IOS
+            #if IOS
                 return await BookViewer.Platforms.iOS.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
-#elif ANDROID
+            #elif ANDROID
                 return await BookViewer.Platforms.Android.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
-#else
+            #elif WINDOWS
+                return await BookViewer.Platforms.Windows.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+            #else
                 await Task.CompletedTask;
                 return null;
-#endif
+            #endif
             };
 
             pdfService.OnProgress += (s, progress) =>
