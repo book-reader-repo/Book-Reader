@@ -138,7 +138,7 @@ public partial class BookViewerPage : ContentPage
         {
             if (_bookLoaded) return;
             _bookLoaded = true;
-
+        
             Log("Loaded event fired → calling LoadBookAsync");
             var success = await _bookService.LoadBookAsync(bookFolder);
             if (success)
@@ -150,47 +150,47 @@ public partial class BookViewerPage : ContentPage
                 ViewModeButton.IsEnabled = true;
                 ExportPdfButton.IsEnabled = true;
                 GridButton.IsEnabled = true;
-
+        
                 _currentViewMode = "content";
                 _showTeacherNotes = false;
                 _showStudentAnswers = false;
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
-
-                if (_startFolio > 0)
+        
+                if (!string.IsNullOrEmpty(_targetSectionId))
                 {
-                    int idx = -1;
-                
-                    // Prefer section-scoped lookup
-                    if (!string.IsNullOrEmpty(_targetSectionId))
+                    // Primary: use book.xml seqindex
+                    int idx = _bookService.GetFirstIndexOfSection(_targetSectionId);
+                    Log($"Section {_targetSectionId} → first index {idx}");
+        
+                    // Fallback: pages.xml folio map
+                    if (idx < 0 && _startFolio > 0)
                     {
                         idx = _bookService.GetIndexForSectionFolio(_targetSectionId, _startFolio);
-                        Log($"Section {_targetSectionId} folio {_startFolio} → index {idx}");
+                        Log($"Fallback folio {_startFolio} → index {idx}");
                     }
-                
-                    // Fallback: global folio map
-                    if (idx < 0)
-                    {
-                        idx = _bookService.GetIndexForFolio(_startFolio);
-                        Log($"Global folio {_startFolio} → index {idx}");
-                    }
-                
-                    // Last resort: treat folio as 1-based index, but subtract 1
-                    // (folios start at 2 for page 1, so subtract 1 to get the array index)
-                    if (idx < 0)
+        
+                    // Last fallback: folio minus 1
+                    if (idx < 0 && _startFolio > 0)
                     {
                         idx = _startFolio - 1;
-                        Log($"Fallback: treating {_startFolio} as index {idx}");
+                        Log($"Last fallback: folio {_startFolio} → index {idx}");
                     }
-                
-                    // Clamp to valid range
-                    if (idx < 0) idx = 0;
-                    if (idx >= _bookService.PageFiles.Count)
-                        idx = _bookService.PageFiles.Count - 1;
-                
-                    Log($"Final index: {idx}");
-                    await _bookService.LoadPageAsync(idx);
+        
+                    if (idx >= 0 && idx < _bookService.PageFiles.Count)
+                    {
+                        await _bookService.LoadPageAsync(idx);
+                    }
+                }
+                else if (_startFolio > 0)
+                {
+                    int idx = _bookService.GetIndexForFolio(_startFolio);
+                    if (idx < 0) idx = _startFolio - 1;
+                    if (idx >= 0 && idx < _bookService.PageFiles.Count)
+                    {
+                        await _bookService.LoadPageAsync(idx);
+                    }
                 }
             }
             else
