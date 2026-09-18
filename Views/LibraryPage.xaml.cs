@@ -106,6 +106,165 @@ namespace BookViewer.Views
             await Navigation.PushAsync(toc);
         }
 
+        private async void OnBatchDownloadClicked(object sender, EventArgs e)
+        {
+            // Prompt for a comma/space/newline separated list of book numbers
+            var input = await DisplayPromptAsync(
+                "Batch Download",
+                "Enter book numbers separated by commas, spaces, or new lines.\nExample: 3835, 3836, 3837",
+                "Start",
+                "Cancel",
+                "",
+                -1,
+                Keyboard.Text);
+        
+            if (string.IsNullOrWhiteSpace(input))
+                return;
+        
+            // Parse book numbers
+            var tokens = input
+                .Split(new[] { ',', ';', ' ', '\t', '\r', '\n' },
+                       StringSplitOptions.RemoveEmptyEntries);
+        
+            var bookNumbers = new List<int>();
+            var invalid = new List<string>();
+        
+            foreach (var t in tokens)
+            {
+                if (int.TryParse(t.Trim(), out int n) && n > 0)
+                    bookNumbers.Add(n);
+                else
+                    invalid.Add(t.Trim());
+            }
+        
+            // Remove duplicates, keep original order
+            bookNumbers = bookNumbers.Distinct().ToList();
+        
+            if (bookNumbers.Count == 0)
+            {
+                await DisplayAlert("Batch Download", "No valid book numbers found.", "OK");
+                return;
+            }
+        
+            if (invalid.Count > 0)
+            {
+                var proceed = await DisplayAlert(
+                    "Batch Download",
+                    $"Skipping invalid entries: {string.Join(", ", invalid)}\n\n" +
+                    $"Download {bookNumbers.Count} book(s)?",
+                    "Download", "Cancel");
+        
+                if (!proceed) return;
+            }
+            else
+            {
+                var proceed = await DisplayAlert(
+                    "Batch Download",
+                    $"Download {bookNumbers.Count} book(s)?\n\n{string.Join(", ", bookNumbers)}",
+                    "Download", "Cancel");
+        
+                if (!proceed) return;
+            }
+        
+            // Run the batch
+            var booksDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "BookViewer", "Books");
+        
+            int success = 0;
+            int skipped = 0;
+            int failed = 0;
+            var failures = new List<string>();
+        
+            var downloadService = new Services.DownloadService();
+        
+            for (int i = 0; i < bookNumbers.Count; i++)
+            {
+                var bookNumber = bookNumbers[i];
+                var finalDir = Path.Combine(booksDir, $"book_{bookNumber}");
+        
+                // Skip if already downloaded
+                if (Directory.Exists(finalDir))
+                {
+                    skipped++;
+                    Dispatcher.Dispatch(() =>
+                        StatusLabel.Text = $"[{i + 1}/{bookNumbers.Count}] book_{bookNumber} already exists, skipping");
+                    continue;
+                }
+        
+                // Update status
+                var current = i + 1;
+                var total = bookNumbers.Count;
+                Dispatcher.Dispatch(() =>
+                    StatusLabel.Text = $"[{current}/{total}] Downloading book_{bookNumber}...");
+        
+                var tcs = new TaskCompletionSource<bool>();
+        
+                EventHandler<int> progressHandler = (s, p) =>
+                {
+                    Dispatcher.Dispatch(() =>
+                        StatusLabel.Text = $"[{current}/{total}] book_{bookNumber}: {p}%");
+                };
+        
+                EventHandler<string> completeHandler = null;
+                EventHandler<string> errorHandler = null;
+        
+                completeHandler = (s, path) =>
+                {
+                    downloadService.OnProgress -= progressHandler;
+                    downloadService.OnComplete -= completeHandler;
+                    downloadService.OnError -= errorHandler;
+                    tcs.TrySetResult(true);
+                };
+        
+                errorHandler = (s, error) =>
+                {
+                    downloadService.OnProgress -= progressHandler;
+                    downloadService.OnComplete -= completeHandler;
+                    downloadService.OnError -= errorHandler;
+                    tcs.TrySetResult(false);
+                };
+        
+                downloadService.OnProgress += progressHandler;
+                downloadService.OnComplete += completeHandler;
+                downloadService.OnError += errorHandler;
+        
+                try
+                {
+                    await downloadService.DownloadBookAsync(bookNumber);
+                    var ok = await tcs.Task;
+        
+                    if (ok)
+                        success++;
+                    else
+                    {
+                        failed++;
+                        failures.Add($"{bookNumber}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    failures.Add($"{bookNumber}: {ex.Message}");
+                }
+            }
+        
+            // Refresh library
+            LoadBooks();
+        
+            // Summary
+            var summary = $"Batch download complete.\n\n" +
+                          $"Success: {success}\n" +
+                          $"Skipped (already exists): {skipped}\n" +
+                          $"Failed: {failed}";
+        
+            if (failures.Count > 0)
+                summary += "\n\nFailed books:\n" + string.Join("\n", failures);
+        
+            StatusLabel.Text = $"{success} downloaded, {skipped} skipped, {failed} failed";
+            await DisplayAlert("Batch Download", summary, "OK");
+        }
+
         private async void OnRefreshClicked(object sender, EventArgs e)
         {
             LoadBooks();
