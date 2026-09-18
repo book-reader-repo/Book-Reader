@@ -105,68 +105,76 @@ namespace BookViewer.Views
             var toc = new TocPage(book.FolderPath, book.Data);
             await Navigation.PushAsync(toc);
         }
-
+        
         private async void OnBatchDownloadClicked(object sender, EventArgs e)
         {
-            // Prompt for a comma/space/newline separated list of book numbers
-            var input = await DisplayPromptAsync(
+            // Ask for start number
+            var startInput = await DisplayPromptAsync(
                 "Batch Download",
-                "Enter book numbers separated by commas, spaces, or new lines.\nExample: 3835, 3836, 3837",
-                "Start",
+                "Start book number:",
+                "Next",
                 "Cancel",
                 "",
                 -1,
-                Keyboard.Text);
+                Keyboard.Numeric);
         
-            if (string.IsNullOrWhiteSpace(input))
+            if (string.IsNullOrWhiteSpace(startInput))
                 return;
         
-            // Parse book numbers
-            var tokens = input
-                .Split(new[] { ',', ';', ' ', '\t', '\r', '\n' },
-                       StringSplitOptions.RemoveEmptyEntries);
+            if (!int.TryParse(startInput.Trim(), out int startNum) || startNum <= 0)
+            {
+                await DisplayAlert("Batch Download", "Invalid start number.", "OK");
+                return;
+            }
         
+            // Ask for end number
+            var endInput = await DisplayPromptAsync(
+                "Batch Download",
+                $"End book number (start: {startNum}):",
+                "Download",
+                "Cancel",
+                "",
+                -1,
+                Keyboard.Numeric);
+        
+            if (string.IsNullOrWhiteSpace(endInput))
+                return;
+        
+            if (!int.TryParse(endInput.Trim(), out int endNum) || endNum <= 0)
+            {
+                await DisplayAlert("Batch Download", "Invalid end number.", "OK");
+                return;
+            }
+        
+            if (endNum < startNum)
+            {
+                await DisplayAlert("Batch Download",
+                    "End number must be greater than or equal to start number.", "OK");
+                return;
+            }
+        
+            // Cap the range to avoid accidental huge downloads
+            const int MAX_RANGE = 200;
+            if (endNum - startNum + 1 > MAX_RANGE)
+            {
+                await DisplayAlert("Batch Download",
+                    $"Range too large (max {MAX_RANGE} books at a time).", "OK");
+                return;
+            }
+        
+            // Build the list
             var bookNumbers = new List<int>();
-            var invalid = new List<string>();
+            for (int n = startNum; n <= endNum; n++)
+                bookNumbers.Add(n);
         
-            foreach (var t in tokens)
-            {
-                if (int.TryParse(t.Trim(), out int n) && n > 0)
-                    bookNumbers.Add(n);
-                else
-                    invalid.Add(t.Trim());
-            }
+            var proceed = await DisplayAlert(
+                "Batch Download",
+                $"Download {bookNumbers.Count} book(s):\n\n{startNum} → {endNum}",
+                "Download", "Cancel");
         
-            // Remove duplicates, keep original order
-            bookNumbers = bookNumbers.Distinct().ToList();
+            if (!proceed) return;
         
-            if (bookNumbers.Count == 0)
-            {
-                await DisplayAlert("Batch Download", "No valid book numbers found.", "OK");
-                return;
-            }
-        
-            if (invalid.Count > 0)
-            {
-                var proceed = await DisplayAlert(
-                    "Batch Download",
-                    $"Skipping invalid entries: {string.Join(", ", invalid)}\n\n" +
-                    $"Download {bookNumbers.Count} book(s)?",
-                    "Download", "Cancel");
-        
-                if (!proceed) return;
-            }
-            else
-            {
-                var proceed = await DisplayAlert(
-                    "Batch Download",
-                    $"Download {bookNumbers.Count} book(s)?\n\n{string.Join(", ", bookNumbers)}",
-                    "Download", "Cancel");
-        
-                if (!proceed) return;
-            }
-        
-            // Run the batch
+            // ---- Run the batch ----
             var booksDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 "BookViewer", "Books");
@@ -192,7 +200,6 @@ namespace BookViewer.Views
                     continue;
                 }
         
-                // Update status
                 var current = i + 1;
                 var total = bookNumbers.Count;
                 Dispatcher.Dispatch(() =>
@@ -239,7 +246,7 @@ namespace BookViewer.Views
                     else
                     {
                         failed++;
-                        failures.Add($"{bookNumber}");
+                        failures.Add(bookNumber.ToString());
                     }
                 }
                 catch (Exception ex)
