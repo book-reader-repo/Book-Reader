@@ -219,6 +219,7 @@ namespace BookViewer.Models
         public string Description { get; set; } = "";
         public string PageNumber { get; set; } = "";
         public string Path { get; set; } = "";
+        public string FallbackUrl { get; set; } = "";   // <-- add this
         public string Icon { get; set; } = "";
     }
 }
