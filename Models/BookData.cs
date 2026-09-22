@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Xml;
 
 namespace BookViewer.Models
@@ -16,87 +17,16 @@ namespace BookViewer.Models
         public Dictionary<string, List<SectionData>> UnitSections { get; set; } = new();
         public List<SectionData> AllSections { get; set; } = new();
 
-
-        // Parse sectiongroups → resources attached to sections
-        // A <sectiongroup> has attributes: link/desc/path, and children <sectionset><section id="s_XXXX"/>
-        var sectionGroups = doc.SelectNodes("//sectiongroup");
-        if (sectionGroups != null)
-        {
-            foreach (XmlNode sg in sectionGroups)
-            {
-                var desc = sg.Attributes?["desc"]?.Value ?? "";
-                var path = sg.Attributes?["path"]?.Value ?? "";
-                var link = sg.Attributes?["link"]?.Value ?? "";
-        
-                // Prefer platform-specific, fall back to generic
-                var url = link;
-                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["teacherios"]?.Value ?? "";
-                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["studentiospath"]?.Value ?? "";
-                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["teacherpc"]?.Value ?? "";
-                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["studentpc"]?.Value ?? "";
-        
-                if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(desc))
-                    continue;
-        
-                // Determine type from extension
-                var lower = url.ToLower();
-                var type = "link";
-                if (lower.Contains(".mp3") || lower.Contains(".m4a") || lower.Contains(".wav") ||
-                    lower.Contains("/audio/") || lower.Contains("_rpa_"))
-                    type = "audio";
-                else if (lower.Contains(".mp4") || lower.Contains(".mov") || lower.Contains("video"))
-                    type = "video";
-                else if (lower.Contains(".pdf"))
-                    type = "pdf";
-                else if (lower.Contains(".docx") || lower.Contains(".doc") ||
-                         lower.Contains(".pptx") || lower.Contains(".xlsx"))
-                    type = "doc";
-        
-                var resource = new ResourceData
-                {
-                    Type = type,
-                    Description = Uri.UnescapeDataString(desc),
-                    Path = Uri.UnescapeDataString(url),
-                    Icon = Uri.UnescapeDataString(path),
-                    PageNumber = ""
-                };
-        
-                // Attach to every section listed under this sectiongroup
-                var sectionRefs = sg.SelectNodes(".//sectionset/section");
-                if (sectionRefs != null)
-                {
-                    foreach (XmlNode sr in sectionRefs)
-                    {
-                        var sectionId = sr.Attributes?["id"]?.Value ?? "";
-                        if (string.IsNullOrEmpty(sectionId)) continue;
-        
-                        var section = AllSections.FirstOrDefault(s => s.Id == sectionId);
-                        if (section != null)
-                        {
-                            section.Resources.Add(resource);
-        
-                            // Pull page number out of the desc, e.g. "(第18頁)"
-                            var m = System.Text.RegularExpressions.Regex.Match(desc, @"\(第(\d+)頁\)");
-                            if (m.Success)
-                                resource.PageNumber = m.Groups[1].Value;
-                        }
-                    }
-                }
-            }
-        }
-
-        
-        /// <summary>folio → step file basename (e.g. 2 → "steps_1")</summary>
         public Dictionary<int, string> FolioToStepFile { get; set; } = new();
 
         public void LoadFromXml(string xmlContent, string folderPath)
         {
             FolderPath = folderPath;
 
-            // book.xml may be a bare sequence of top-level nodes without a root
-            // (unitdetails, sectiondetails, etc.). Wrap in <root> if needed.
             var trimmed = xmlContent.TrimStart();
-            if (!trimmed.StartsWith("<book") && !trimmed.StartsWith("<?xml") && !trimmed.StartsWith("<root"))
+            if (!trimmed.StartsWith("<book") &&
+                !trimmed.StartsWith("<?xml") &&
+                !trimmed.StartsWith("<root"))
             {
                 xmlContent = $"<root>{xmlContent}</root>";
             }
@@ -104,7 +34,7 @@ namespace BookViewer.Models
             var doc = new XmlDocument();
             doc.LoadXml(xmlContent);
 
-            // Book metadata
+            // ---- Book metadata ----
             var bookNode = doc.SelectSingleNode("//book");
             if (bookNode != null)
             {
@@ -113,7 +43,7 @@ namespace BookViewer.Models
                 CoverPath = bookNode.Attributes?["coverpath"]?.Value ?? "";
             }
 
-            // Units (from <modules><module><unit>)
+            // ---- Units ----
             var unitNodes = doc.SelectNodes("//unit");
             if (unitNodes != null)
             {
@@ -125,7 +55,6 @@ namespace BookViewer.Models
                         Title = node.Attributes?["name"]?.Value ?? ""
                     };
 
-                    // Avoid duplicates (some books list units in multiple places)
                     if (!Units.Any(u => u.Id == unit.Id))
                     {
                         Units.Add(unit);
@@ -134,7 +63,7 @@ namespace BookViewer.Models
                 }
             }
 
-            // Sections + their nested <page> entries
+            // ---- Sections + nested <page> entries ----
             var sectionDetailNodes = doc.SelectNodes("//sectiondetails/sectiondetail");
             if (sectionDetailNodes != null)
             {
@@ -147,7 +76,6 @@ namespace BookViewer.Models
                         PageStart = node.Attributes?["pagestart"]?.Value ?? ""
                     };
 
-                    // Parse nested <page file="steps_1" folio="2" seq="1" .../>
                     var pageNodes = node.SelectNodes(".//page");
                     if (pageNodes != null)
                     {
@@ -157,7 +85,7 @@ namespace BookViewer.Models
                             var folioStr = pageNode.Attributes?["folio"]?.Value ?? "";
 
                             if (!string.IsNullOrEmpty(file))
-                                section.StepFiles.Add(file);   // "steps_1"
+                                section.StepFiles.Add(file);
 
                             if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
                             {
@@ -171,14 +99,15 @@ namespace BookViewer.Models
                 }
             }
 
-            // Link sections to units via <unitdetail><sectiongroup><sectionset><section id="..."/>
+            // ---- Link sections to units ----
             var unitDetailNodes = doc.SelectNodes("//unitdetail");
             if (unitDetailNodes != null)
             {
                 foreach (XmlNode node in unitDetailNodes)
                 {
                     string unitId = node.Attributes?["id"]?.Value ?? "";
-                    if (!UnitSections.ContainsKey(unitId)) continue;
+                    if (!UnitSections.ContainsKey(unitId))
+                        continue;
 
                     var sectionNodes = node.SelectNodes(".//section");
                     if (sectionNodes != null)
@@ -193,10 +122,80 @@ namespace BookViewer.Models
                     }
                 }
             }
+
+            // ---- Resources from <sectiongroup> ----
+            var sectionGroups = doc.SelectNodes("//sectiongroup");
+            if (sectionGroups != null)
+            {
+                foreach (XmlNode sg in sectionGroups)
+                {
+                    var desc = sg.Attributes?["desc"]?.Value ?? "";
+                    var path = sg.Attributes?["path"]?.Value ?? "";
+                    var link = sg.Attributes?["link"]?.Value ?? "";
+
+                    var url = link;
+                    if (string.IsNullOrEmpty(url))
+                        url = sg.Attributes?["teacherios"]?.Value ?? "";
+                    if (string.IsNullOrEmpty(url))
+                        url = sg.Attributes?["studentiospath"]?.Value ?? "";
+                    if (string.IsNullOrEmpty(url))
+                        url = sg.Attributes?["teacherpc"]?.Value ?? "";
+                    if (string.IsNullOrEmpty(url))
+                        url = sg.Attributes?["studentpc"]?.Value ?? "";
+
+                    if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(desc))
+                        continue;
+
+                    var lower = url.ToLower();
+                    var type = "link";
+
+                    if (lower.Contains(".mp3") || lower.Contains(".m4a") || lower.Contains(".wav") ||
+                        lower.Contains("/audio/") || lower.Contains("_rpa_"))
+                        type = "audio";
+                    else if (lower.Contains(".mp4") || lower.Contains(".mov") || lower.Contains("video"))
+                        type = "video";
+                    else if (lower.Contains(".pdf"))
+                        type = "pdf";
+                    else if (lower.Contains(".docx") || lower.Contains(".doc") ||
+                             lower.Contains(".pptx") || lower.Contains(".xlsx"))
+                        type = "doc";
+
+                    var resource = new ResourceData
+                    {
+                        Type = type,
+                        Description = Uri.UnescapeDataString(desc),
+                        Path = Uri.UnescapeDataString(url),
+                        Icon = Uri.UnescapeDataString(path),
+                        PageNumber = ""
+                    };
+
+                    // Pull page number out of desc like "(第18頁)"
+                    var pageMatch = Regex.Match(desc, @"\(第(\d+)頁\)");
+                    if (pageMatch.Success)
+                        resource.PageNumber = pageMatch.Groups[1].Value;
+
+                    var sectionRefs = sg.SelectNodes(".//sectionset/section");
+                    if (sectionRefs != null)
+                    {
+                        foreach (XmlNode sr in sectionRefs)
+                        {
+                            var sectionId = sr.Attributes?["id"]?.Value ?? "";
+                            if (string.IsNullOrEmpty(sectionId))
+                                continue;
+
+                            var section = AllSections.FirstOrDefault(s => s.Id == sectionId);
+                            if (section != null)
+                                section.Resources.Add(resource);
+                        }
+                    }
+                }
+            }
         }
 
         public List<SectionData> GetSectionsForUnit(string unitId)
-            => UnitSections.TryGetValue(unitId, out var s) ? s : new List<SectionData>();
+        {
+            return UnitSections.TryGetValue(unitId, out var s) ? s : new List<SectionData>();
+        }
     }
 
     public class UnitData
@@ -210,7 +209,7 @@ namespace BookViewer.Models
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string PageStart { get; set; } = "";
-        public List<string> StepFiles { get; set; } = new();   // from nested <page file="..."/>
+        public List<string> StepFiles { get; set; } = new();
         public List<ResourceData> Resources { get; set; } = new();
     }
 
