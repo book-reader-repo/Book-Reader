@@ -159,8 +159,10 @@ namespace BookViewer.Views
             return -1;
         }
 
-        private async void OnBackTapped(object sender, EventArgs e) => await Navigation.PopAsync();
-
+        private async void OnBackClicked(object sender, EventArgs e)
+        {
+            await Navigation.PopAsync();
+        }
         private void OnResourcesTabTapped(object sender, EventArgs e)
         {
             ContentsView.IsVisible = false;
