@@ -16,6 +16,76 @@ namespace BookViewer.Models
         public Dictionary<string, List<SectionData>> UnitSections { get; set; } = new();
         public List<SectionData> AllSections { get; set; } = new();
 
+
+        // Parse sectiongroups → resources attached to sections
+        // A <sectiongroup> has attributes: link/desc/path, and children <sectionset><section id="s_XXXX"/>
+        var sectionGroups = doc.SelectNodes("//sectiongroup");
+        if (sectionGroups != null)
+        {
+            foreach (XmlNode sg in sectionGroups)
+            {
+                var desc = sg.Attributes?["desc"]?.Value ?? "";
+                var path = sg.Attributes?["path"]?.Value ?? "";
+                var link = sg.Attributes?["link"]?.Value ?? "";
+        
+                // Prefer platform-specific, fall back to generic
+                var url = link;
+                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["teacherios"]?.Value ?? "";
+                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["studentiospath"]?.Value ?? "";
+                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["teacherpc"]?.Value ?? "";
+                if (string.IsNullOrEmpty(url)) url = sg.Attributes?["studentpc"]?.Value ?? "";
+        
+                if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(desc))
+                    continue;
+        
+                // Determine type from extension
+                var lower = url.ToLower();
+                var type = "link";
+                if (lower.Contains(".mp3") || lower.Contains(".m4a") || lower.Contains(".wav") ||
+                    lower.Contains("/audio/") || lower.Contains("_rpa_"))
+                    type = "audio";
+                else if (lower.Contains(".mp4") || lower.Contains(".mov") || lower.Contains("video"))
+                    type = "video";
+                else if (lower.Contains(".pdf"))
+                    type = "pdf";
+                else if (lower.Contains(".docx") || lower.Contains(".doc") ||
+                         lower.Contains(".pptx") || lower.Contains(".xlsx"))
+                    type = "doc";
+        
+                var resource = new ResourceData
+                {
+                    Type = type,
+                    Description = Uri.UnescapeDataString(desc),
+                    Path = Uri.UnescapeDataString(url),
+                    Icon = Uri.UnescapeDataString(path),
+                    PageNumber = ""
+                };
+        
+                // Attach to every section listed under this sectiongroup
+                var sectionRefs = sg.SelectNodes(".//sectionset/section");
+                if (sectionRefs != null)
+                {
+                    foreach (XmlNode sr in sectionRefs)
+                    {
+                        var sectionId = sr.Attributes?["id"]?.Value ?? "";
+                        if (string.IsNullOrEmpty(sectionId)) continue;
+        
+                        var section = AllSections.FirstOrDefault(s => s.Id == sectionId);
+                        if (section != null)
+                        {
+                            section.Resources.Add(resource);
+        
+                            // Pull page number out of the desc, e.g. "(第18頁)"
+                            var m = System.Text.RegularExpressions.Regex.Match(desc, @"\(第(\d+)頁\)");
+                            if (m.Success)
+                                resource.PageNumber = m.Groups[1].Value;
+                        }
+                    }
+                }
+            }
+        }
+
+        
         /// <summary>folio → step file basename (e.g. 2 → "steps_1")</summary>
         public Dictionary<int, string> FolioToStepFile { get; set; } = new();
 
