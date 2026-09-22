@@ -88,7 +88,7 @@
           
                           <Label Text="{Binding DisplayName}"
                                  FontSize="12"
-                                 TextColor="Transparent"
+                                 TextColor="#333"
                                  HorizontalTextAlignment="Center"
                                  LineBreakMode="TailTruncation"
                                  MaxLines="2"
