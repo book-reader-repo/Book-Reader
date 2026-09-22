@@ -10,7 +10,42 @@ using Microsoft.Maui.Controls;
 namespace BookViewer.Views
 {
     public partial class UnitPage : ContentPage
-    {
+        {
+        private static readonly object _logLock = new object();
+        private static string _logFilePath = null;
+        
+        private string GetLogFilePath()
+        {
+            if (_logFilePath == null)
+            {
+                try
+                {
+                    string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                    string logFolder = Path.Combine(documentsPath, "BookViewer");
+                    Directory.CreateDirectory(logFolder);
+                    _logFilePath = Path.Combine(logFolder, $"UnitPage_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                }
+                catch
+                {
+                    _logFilePath = Path.Combine(Path.GetTempPath(), $"UnitPage_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                }
+            }
+            return _logFilePath;
+        }
+        
+        private void Log(string message)
+        {
+            try
+            {
+                string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
+                lock (_logLock)
+                {
+                    File.AppendAllText(GetLogFilePath(), line + Environment.NewLine);
+                }
+                System.Diagnostics.Debug.WriteLine(line);
+            }
+            catch { }
+        }
         private readonly string _bookFolder;
         private readonly BookData _bookData;
         private readonly UnitData _unit;
