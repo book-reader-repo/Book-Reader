@@ -35,6 +35,22 @@ namespace BookViewer.Views
             LoadBooks();
         }
 
+        private async void OnBookTapped(object sender, TappedEventArgs e)
+        {
+            if ((sender as BindableObject)?.BindingContext is not LibraryBook book)
+                return;
+        
+            try
+            {
+                var toc = new TocPage(book.FolderPath, book.Data);
+                await Navigation.PushAsync(toc);
+            }
+            catch (Exception ex)
+            {
+                await DisplayAlert("Error", ex.Message, "OK");
+            }
+        }
+
         private void LoadBooks()
         {
             _books.Clear();
