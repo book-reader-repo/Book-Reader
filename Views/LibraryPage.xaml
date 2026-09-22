@@ -71,7 +71,7 @@
                           </VerticalStackLayout.GestureRecognizers>
           
                           <Frame Padding="0"
-                                 CornerRadius="80"
+                                 CornerRadius="0"
                                  WidthRequest="160"
                                  HeightRequest="160"
                                  HorizontalOptions="Center"
