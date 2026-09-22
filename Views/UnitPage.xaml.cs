@@ -10,7 +10,7 @@ using Microsoft.Maui.Controls;
 namespace BookViewer.Views
 {
     public partial class UnitPage : ContentPage
-        {
+    {
         private static readonly object _logLock = new object();
         private static string _logFilePath = null;
         
@@ -32,7 +32,19 @@ namespace BookViewer.Views
             }
             return _logFilePath;
         }
+
+        private void OnContentsTabClicked(object sender, EventArgs e)
+        {
+            ContentsView.IsVisible = true;
+            ResourcesView.IsVisible = false;
         
+            ContentsTab.BackgroundColor = Color.FromArgb("#E0E0E0");
+            ContentsTab.TextColor = Colors.Black;
+        
+            ResourcesTab.BackgroundColor = Colors.Transparent;
+            ResourcesTab.TextColor = Color.FromArgb("#666666");
+        }
+
         private void Log(string message)
         {
             try
@@ -59,6 +71,26 @@ namespace BookViewer.Views
             public string Description { get; set; } = "";
             public string PageNumber { get; set; } = "";
             public string Path { get; set; } = "";
+        }
+
+        private void OnResourcesTabClicked(object sender, EventArgs e)
+        {
+            ContentsView.IsVisible = false;
+            ResourcesView.IsVisible = true;
+        
+            ContentsTab.BackgroundColor = Colors.Transparent;
+            ContentsTab.TextColor = Color.FromArgb("#666666");
+        
+            ResourcesTab.BackgroundColor = Color.FromArgb("#E0E0E0");
+            ResourcesTab.TextColor = Colors.Black;
+        }
+
+        private async void OnResourceTapped(object sender, TappedEventArgs e)
+        {
+            if ((sender as BindableObject)?.BindingContext is not ResourceDisplay r)
+                return;
+        
+            await OpenResourceAsync(r);
         }
 
         private async void OnBackTapped(object sender, TappedEventArgs e)
@@ -226,7 +258,7 @@ namespace BookViewer.Views
             }
         }
 
-        private async void OnResourceSelected(object sender, SelectionChangedEventArgs e)
+        private async Task OpenResourceAsync(ResourceDisplay r)
         {
             if (e.CurrentSelection.FirstOrDefault() is not ResourceDisplay r)
                 return;
