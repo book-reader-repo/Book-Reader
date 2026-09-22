@@ -193,29 +193,109 @@ namespace BookViewer.Views
 
         private async void OnResourceSelected(object sender, SelectionChangedEventArgs e)
         {
-            if (e.CurrentSelection.FirstOrDefault() is not ResourceDisplay r) return;
+            if (e.CurrentSelection.FirstOrDefault() is not ResourceDisplay r)
+                return;
+        
             ResourcesCollection.SelectedItem = null;
-
+        
             try
             {
-                if (r.Path.StartsWith("http"))
+                var target = r.Path ?? "";
+                Log($"Resource selected: desc='{r.Description}' target='{target}'");
+        
+                if (string.IsNullOrWhiteSpace(target))
                 {
-                    await Launcher.Default.OpenAsync(r.Path);
+                    Log("Resource path is empty, aborting");
+                    return;
                 }
-                else if (File.Exists(r.Path))
+        
+                // Online URL
+                if (Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
+                    (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
                 {
-                    await Launcher.Default.OpenAsync(new OpenFileRequest
+                    Log($"Opening ONLINE url: {target}");
+                    await Launcher.Default.OpenAsync(target);
+                    return;
+                }
+        
+                // Local file
+                var fileName = Path.GetFileName(target);
+                Log($"Local resource filename: '{fileName}'");
+        
+                if (string.IsNullOrEmpty(fileName))
+                {
+                    Log("Filename empty, aborting");
+                    return;
+                }
+        
+                string localPath = null;
+                var resourcesDir = Path.Combine(_bookFolder, "resources");
+                Log($"Looking in resources dir: {resourcesDir}");
+        
+                if (Directory.Exists(resourcesDir))
+                {
+                    var direct = Path.Combine(resourcesDir, fileName);
+                    Log($"Trying direct path: {direct} (exists={File.Exists(direct)})");
+        
+                    if (File.Exists(direct))
                     {
-                        File = new ReadOnlyFile(r.Path)
-                    });
+                        localPath = direct;
+                    }
+                    else
+                    {
+                        var found = Directory.GetFiles(resourcesDir, fileName, SearchOption.AllDirectories).FirstOrDefault();
+                        Log($"Recursive search result: {found ?? "(none)"}");
+                        if (found != null) localPath = found;
+                    }
                 }
                 else
                 {
-                    await DisplayAlert("Not found", $"Resource not found:\n{r.Path}", "OK");
+                    Log($"Resources dir does NOT exist: {resourcesDir}");
                 }
+        
+                if (string.IsNullOrEmpty(localPath) || !File.Exists(localPath))
+                {
+                    Log($"FILE NOT FOUND: {fileName}");
+                    await DisplayAlert("Not found", $"File not found:\n{fileName}", "OK");
+                    return;
+                }
+        
+                Log($"OPENING LOCAL FILE: {localPath} (size={new FileInfo(localPath).Length} bytes)");
+        
+        #if WINDOWS
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = Path.GetFullPath(localPath),
+                        UseShellExecute = true
+                    });
+                    Log("Windows Process.Start succeeded");
+                }
+                catch (Exception wex)
+                {
+                    Log($"Windows open failed: {wex.Message}");
+                    await DisplayAlert("Cannot open", wex.Message, "OK");
+                }
+        #else
+                try
+                {
+                    await Launcher.Default.OpenAsync(new OpenFileRequest
+                    {
+                        File = new ReadOnlyFile(localPath)
+                    });
+                    Log("Launcher.OpenAsync succeeded");
+                }
+                catch (Exception lex)
+                {
+                    Log($"Launcher open failed: {lex.Message}");
+                    await DisplayAlert("Cannot open", lex.Message, "OK");
+                }
+        #endif
             }
             catch (Exception ex)
             {
+                Log($"OnResourceSelected exception: {ex.Message}");
                 await DisplayAlert("Error", ex.Message, "OK");
             }
         }
