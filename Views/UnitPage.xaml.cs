@@ -103,36 +103,39 @@ namespace BookViewer.Views
             var sections = _bookData.GetSectionsForUnit(_unit.Id);
             SectionsCollection.ItemsSource = sections;
         }
-
+        
         private void LoadResources()
         {
             _allResources.Clear();
-
-            // Find all step files in the book folder
-            var stepFiles = Directory.GetFiles(_bookFolder, "steps_*.html", SearchOption.AllDirectories)
-                .Concat(Directory.GetFiles(_bookFolder, "step_*.html", SearchOption.AllDirectories))
-                .Where(f => Regex.IsMatch(Path.GetFileName(f), @"^steps?_\d+\.html$", RegexOptions.IgnoreCase))
-                .Distinct()
-                .ToList();
-
-            foreach (var step in stepFiles)
+        
+            var sections = _bookData.GetSectionsForUnit(_unit.Id);
+            if (sections == null || sections.Count == 0)
             {
-                var stepNum = ParseStepIndex(Path.GetFileName(step));
-                var resources = _resourceService.LoadResourcesForStepFile(step, _bookFolder);
-                foreach (var r in resources)
+                ResourcesCollection.ItemsSource = _allResources;
+                return;
+            }
+        
+            foreach (var section in sections)
+            {
+                foreach (var r in section.Resources)
                 {
                     _allResources.Add(new ResourceDisplay
                     {
                         Type = r.Type,
                         TypeIcon = GetIconForType(r.Type),
                         Description = r.Description,
-                        PageNumber = stepNum >= 0 ? stepNum.ToString() : "",
+                        PageNumber = r.PageNumber,
                         Path = r.Path
                     });
                 }
             }
-
-            _allResources = _allResources.OrderBy(r => int.TryParse(r.PageNumber, out var n) ? n : 0).ToList();
+        
+            // Sort by page number, then by description
+            _allResources = _allResources
+                .OrderBy(r => int.TryParse(r.PageNumber, out var n) ? n : 0)
+                .ThenBy(r => r.Description)
+                .ToList();
+        
             ResourcesCollection.ItemsSource = _allResources;
         }
 
