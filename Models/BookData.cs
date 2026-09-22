@@ -159,16 +159,29 @@ namespace BookViewer.Models
                     else if (lower.Contains(".docx") || lower.Contains(".doc") ||
                              lower.Contains(".pptx") || lower.Contains(".xlsx"))
                         type = "doc";
-
+                    
                     var resource = new ResourceData
                     {
                         Type = type,
                         Description = Uri.UnescapeDataString(desc),
                         Path = Uri.UnescapeDataString(url),
                         Icon = Uri.UnescapeDataString(path),
-                        PageNumber = ""
+                        PageNumber = "",
+                        FallbackUrl = ""   // <-- set this
                     };
-
+                    
+                    // If the primary path is a local filename but a remote URL exists, keep the remote as fallback
+                    if (!string.IsNullOrEmpty(url) &&
+                        !url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var remote = sg.Attributes?["teacherios"]?.Value
+                                  ?? sg.Attributes?["studentiospath"]?.Value
+                                  ?? sg.Attributes?["teacherweb"]?.Value
+                                  ?? "";
+                    
+                        if (!string.IsNullOrEmpty(remote))
+                            resource.FallbackUrl = Uri.UnescapeDataString(remote);
+                    }
                     // Pull page number out of desc like "(第18頁)"
                     var pageMatch = Regex.Match(desc, @"\(第(\d+)頁\)");
                     if (pageMatch.Success)
