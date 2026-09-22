@@ -75,20 +75,20 @@
                                  WidthRequest="160"
                                  HeightRequest="160"
                                  HorizontalOptions="Center"
-                                 BackgroundColor="#B2DFDB"
+                                 BackgroundColor="Transparent"
                                  HasShadow="False"
                                  IsClippedToBounds="True"
                                  InputTransparent="True">
                               <Image Source="{Binding CoverImageSource}"
                                      Aspect="AspectFill"
                                      WidthRequest="160"
-                                     HeightRequest="160"
+                                     HeightRequest="200"
                                      InputTransparent="True"/>
                           </Frame>
           
                           <Label Text="{Binding DisplayName}"
                                  FontSize="12"
-                                 TextColor="#333"
+                                 TextColor="Transparent"
                                  HorizontalTextAlignment="Center"
                                  LineBreakMode="TailTruncation"
                                  MaxLines="2"
