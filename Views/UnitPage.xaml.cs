@@ -26,6 +26,11 @@ namespace BookViewer.Views
             public string Path { get; set; } = "";
         }
 
+        private async void OnBackTapped(object sender, TappedEventArgs e)
+        {
+            await Navigation.PopAsync();
+        }
+
         public UnitPage(string bookFolder, BookData bookData, UnitData unit)
         {
             InitializeComponent();
