@@ -16,10 +16,12 @@ namespace BookViewer.Views
             public string BookId { get; set; } = "";
             public string Title { get; set; } = "";
             public string DisplayName { get; set; } = "";
+            public string BookIdLabel { get; set; } = "";
             public ImageSource CoverImageSource { get; set; }
             public BookData Data { get; set; }
         }
 
+        private readonly List<LibraryBook> _allBooks = new();
         private readonly List<LibraryBook> _books = new();
 
         public LibraryPage()
@@ -35,25 +37,9 @@ namespace BookViewer.Views
             LoadBooks();
         }
 
-        private async void OnBookTapped(object sender, TappedEventArgs e)
-        {
-            if ((sender as BindableObject)?.BindingContext is not LibraryBook book)
-                return;
-        
-            try
-            {
-                var toc = new TocPage(book.FolderPath, book.Data);
-                await Navigation.PushAsync(toc);
-            }
-            catch (Exception ex)
-            {
-                await DisplayAlert("Error", ex.Message, "OK");
-            }
-        }
-
         private void LoadBooks()
         {
-            _books.Clear();
+            _allBooks.Clear();
 
             var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             var booksDir = Path.Combine(documentsPath, "BookViewer", "Books");
@@ -61,8 +47,7 @@ namespace BookViewer.Views
             if (!Directory.Exists(booksDir))
             {
                 Directory.CreateDirectory(booksDir);
-                BooksCollection.ItemsSource = _books;
-                StatusLabel.Text = "";
+                ApplyFilter();
                 return;
             }
 
@@ -80,15 +65,20 @@ namespace BookViewer.Views
                     data.LoadFromXml(content, dir);
                     book.Data = data;
                     book.BookId = data.BookId;
-                    book.Title = string.IsNullOrEmpty(data.Title) ? Path.GetFileName(dir) : data.Title;
+                    book.Title = string.IsNullOrEmpty(data.Title)
+                        ? Path.GetFileName(dir)
+                        : data.Title;
                     book.DisplayName = book.Title;
+                    book.BookIdLabel = string.IsNullOrEmpty(book.BookId)
+                        ? Path.GetFileName(dir)
+                        : $"#{book.BookId}";
 
                     var cover = FindCoverImage(dir, book.BookId);
                     book.CoverImageSource = !string.IsNullOrEmpty(cover) && File.Exists(cover)
                         ? ImageSource.FromFile(cover)
                         : (ImageSource)"appicon.png";
 
-                    _books.Add(book);
+                    _allBooks.Add(book);
                 }
                 catch (Exception ex)
                 {
@@ -96,8 +86,67 @@ namespace BookViewer.Views
                 }
             }
 
+            // Sort by numeric ID when possible, otherwise alphabetical
+            _allBooks.Sort((a, b) =>
+            {
+                bool an = int.TryParse(a.BookId, out int ai);
+                bool bn = int.TryParse(b.BookId, out int bi);
+                if (an && bn) return ai.CompareTo(bi);
+                if (an) return -1;
+                if (bn) return 1;
+                return string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase);
+            });
+
+            ApplyFilter();
+        }
+
+        private void ApplyFilter()
+        {
+            var query = SearchEntry?.Text?.Trim() ?? "";
+
+            _books.Clear();
+
+            if (string.IsNullOrEmpty(query))
+            {
+                _books.AddRange(_allBooks);
+            }
+            else
+            {
+                foreach (var b in _allBooks)
+                {
+                    if ((b.Title?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (b.BookId?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (Path.GetFileName(b.FolderPath)?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
+                    {
+                        _books.Add(b);
+                    }
+                }
+            }
+
+            BooksCollection.ItemsSource = null;
             BooksCollection.ItemsSource = _books;
-            StatusLabel.Text = _books.Count == 0 ? "" : $"{_books.Count}";
+
+            if (StatusLabel != null)
+            {
+                if (string.IsNullOrEmpty(query))
+                    StatusLabel.Text = _allBooks.Count == 0 ? "" : $"{_allBooks.Count}";
+                else
+                    StatusLabel.Text = $"{_books.Count} / {_allBooks.Count}";
+            }
+        }
+
+        private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+        {
+            ApplyFilter();
+        }
+
+        private void OnClearSearchClicked(object sender, EventArgs e)
+        {
+            if (SearchEntry != null)
+            {
+                SearchEntry.Text = "";
+                ApplyFilter();
+            }
         }
 
         private string FindCoverImage(string dir, string bookId)
@@ -113,179 +162,20 @@ namespace BookViewer.Views
             return candidates.FirstOrDefault(File.Exists);
         }
 
-        private async void OnBookSelected(object sender, SelectionChangedEventArgs e)
+        private async void OnBookTapped(object sender, TappedEventArgs e)
         {
-            if (e.CurrentSelection.FirstOrDefault() is not LibraryBook book) return;
-            BooksCollection.SelectedItem = null;
+            if ((sender as BindableObject)?.BindingContext is not LibraryBook book)
+                return;
 
-            var toc = new TocPage(book.FolderPath, book.Data);
-            await Navigation.PushAsync(toc);
-        }
-        
-        private async void OnBatchDownloadClicked(object sender, EventArgs e)
-        {
-            // Ask for start number
-            var startInput = await DisplayPromptAsync(
-                "Batch Download",
-                "Start book number:",
-                "Next",
-                "Cancel",
-                "",
-                -1,
-                Keyboard.Numeric);
-        
-            if (string.IsNullOrWhiteSpace(startInput))
-                return;
-        
-            if (!int.TryParse(startInput.Trim(), out int startNum) || startNum <= 0)
+            try
             {
-                await DisplayAlert("Batch Download", "Invalid start number.", "OK");
-                return;
+                var toc = new TocPage(book.FolderPath, book.Data);
+                await Navigation.PushAsync(toc);
             }
-        
-            // Ask for end number
-            var endInput = await DisplayPromptAsync(
-                "Batch Download",
-                $"End book number (start: {startNum}):",
-                "Download",
-                "Cancel",
-                "",
-                -1,
-                Keyboard.Numeric);
-        
-            if (string.IsNullOrWhiteSpace(endInput))
-                return;
-        
-            if (!int.TryParse(endInput.Trim(), out int endNum) || endNum <= 0)
+            catch (Exception ex)
             {
-                await DisplayAlert("Batch Download", "Invalid end number.", "OK");
-                return;
+                await DisplayAlert("Error", ex.Message, "OK");
             }
-        
-            if (endNum < startNum)
-            {
-                await DisplayAlert("Batch Download",
-                    "End number must be greater than or equal to start number.", "OK");
-                return;
-            }
-        
-            // Cap the range to avoid accidental huge downloads
-            const int MAX_RANGE = 200;
-            if (endNum - startNum + 1 > MAX_RANGE)
-            {
-                await DisplayAlert("Batch Download",
-                    $"Range too large (max {MAX_RANGE} books at a time).", "OK");
-                return;
-            }
-        
-            // Build the list
-            var bookNumbers = new List<int>();
-            for (int n = startNum; n <= endNum; n++)
-                bookNumbers.Add(n);
-        
-            var proceed = await DisplayAlert(
-                "Batch Download",
-                $"Download {bookNumbers.Count} book(s):\n\n{startNum} → {endNum}",
-                "Download", "Cancel");
-        
-            if (!proceed) return;
-        
-            // ---- Run the batch ----
-            var booksDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "BookViewer", "Books");
-        
-            int success = 0;
-            int skipped = 0;
-            int failed = 0;
-            var failures = new List<string>();
-        
-            var downloadService = new Services.DownloadService();
-        
-            for (int i = 0; i < bookNumbers.Count; i++)
-            {
-                var bookNumber = bookNumbers[i];
-                var finalDir = Path.Combine(booksDir, $"book_{bookNumber}");
-        
-                // Skip if already downloaded
-                if (Directory.Exists(finalDir))
-                {
-                    skipped++;
-                    Dispatcher.Dispatch(() =>
-                        StatusLabel.Text = $"[{i + 1}/{bookNumbers.Count}] book_{bookNumber} already exists, skipping");
-                    continue;
-                }
-        
-                var current = i + 1;
-                var total = bookNumbers.Count;
-                Dispatcher.Dispatch(() =>
-                    StatusLabel.Text = $"[{current}/{total}] Downloading book_{bookNumber}...");
-        
-                var tcs = new TaskCompletionSource<bool>();
-        
-                EventHandler<int> progressHandler = (s, p) =>
-                {
-                    Dispatcher.Dispatch(() =>
-                        StatusLabel.Text = $"[{current}/{total}] book_{bookNumber}: {p}%");
-                };
-        
-                EventHandler<string> completeHandler = null;
-                EventHandler<string> errorHandler = null;
-        
-                completeHandler = (s, path) =>
-                {
-                    downloadService.OnProgress -= progressHandler;
-                    downloadService.OnComplete -= completeHandler;
-                    downloadService.OnError -= errorHandler;
-                    tcs.TrySetResult(true);
-                };
-        
-                errorHandler = (s, error) =>
-                {
-                    downloadService.OnProgress -= progressHandler;
-                    downloadService.OnComplete -= completeHandler;
-                    downloadService.OnError -= errorHandler;
-                    tcs.TrySetResult(false);
-                };
-        
-                downloadService.OnProgress += progressHandler;
-                downloadService.OnComplete += completeHandler;
-                downloadService.OnError += errorHandler;
-        
-                try
-                {
-                    await downloadService.DownloadBookAsync(bookNumber);
-                    var ok = await tcs.Task;
-        
-                    if (ok)
-                        success++;
-                    else
-                    {
-                        failed++;
-                        failures.Add(bookNumber.ToString());
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    failures.Add($"{bookNumber}: {ex.Message}");
-                }
-            }
-        
-            // Refresh library
-            LoadBooks();
-        
-            // Summary
-            var summary = $"Batch download complete.\n\n" +
-                          $"Success: {success}\n" +
-                          $"Skipped (already exists): {skipped}\n" +
-                          $"Failed: {failed}";
-        
-            if (failures.Count > 0)
-                summary += "\n\nFailed books:\n" + string.Join("\n", failures);
-        
-            StatusLabel.Text = $"{success} downloaded, {skipped} skipped, {failed} failed";
-            await DisplayAlert("Batch Download", summary, "OK");
         }
 
         private async void OnRefreshClicked(object sender, EventArgs e)
@@ -334,6 +224,164 @@ namespace BookViewer.Views
 
             await downloadService.DownloadBookAsync(bookNumber);
             await tcs.Task;
+        }
+
+        private async void OnBatchDownloadClicked(object sender, EventArgs e)
+        {
+            var startInput = await DisplayPromptAsync(
+                "Batch Download",
+                "Start book number:",
+                "Next",
+                "Cancel",
+                "",
+                -1,
+                Keyboard.Numeric);
+
+            if (string.IsNullOrWhiteSpace(startInput))
+                return;
+
+            if (!int.TryParse(startInput.Trim(), out int startNum) || startNum <= 0)
+            {
+                await DisplayAlert("Batch Download", "Invalid start number.", "OK");
+                return;
+            }
+
+            var endInput = await DisplayPromptAsync(
+                "Batch Download",
+                $"End book number (start: {startNum}):",
+                "Download",
+                "Cancel",
+                "",
+                -1,
+                Keyboard.Numeric);
+
+            if (string.IsNullOrWhiteSpace(endInput))
+                return;
+
+            if (!int.TryParse(endInput.Trim(), out int endNum) || endNum <= 0)
+            {
+                await DisplayAlert("Batch Download", "Invalid end number.", "OK");
+                return;
+            }
+
+            if (endNum < startNum)
+            {
+                await DisplayAlert("Batch Download",
+                    "End number must be greater than or equal to start number.", "OK");
+                return;
+            }
+
+            const int MAX_RANGE = 200;
+            if (endNum - startNum + 1 > MAX_RANGE)
+            {
+                await DisplayAlert("Batch Download",
+                    $"Range too large (max {MAX_RANGE} books at a time).", "OK");
+                return;
+            }
+
+            var bookNumbers = new List<int>();
+            for (int n = startNum; n <= endNum; n++)
+                bookNumbers.Add(n);
+
+            var proceed = await DisplayAlert(
+                "Batch Download",
+                $"Download {bookNumbers.Count} book(s):\n\n{startNum} → {endNum}",
+                "Download", "Cancel");
+
+            if (!proceed) return;
+
+            var booksDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "BookViewer", "Books");
+
+            int success = 0;
+            int skipped = 0;
+            int failed = 0;
+            var failures = new List<string>();
+
+            var downloadService = new Services.DownloadService();
+
+            for (int i = 0; i < bookNumbers.Count; i++)
+            {
+                var bookNumber = bookNumbers[i];
+                var finalDir = Path.Combine(booksDir, $"book_{bookNumber}");
+
+                if (Directory.Exists(finalDir))
+                {
+                    skipped++;
+                    Dispatcher.Dispatch(() =>
+                        StatusLabel.Text = $"[{i + 1}/{bookNumbers.Count}] book_{bookNumber} already exists, skipping");
+                    continue;
+                }
+
+                var current = i + 1;
+                var total = bookNumbers.Count;
+                Dispatcher.Dispatch(() =>
+                    StatusLabel.Text = $"[{current}/{total}] Downloading book_{bookNumber}...");
+
+                var tcs = new TaskCompletionSource<bool>();
+
+                EventHandler<int> progressHandler = (s, p) =>
+                {
+                    Dispatcher.Dispatch(() =>
+                        StatusLabel.Text = $"[{current}/{total}] book_{bookNumber}: {p}%");
+                };
+
+                EventHandler<string> completeHandler = null;
+                EventHandler<string> errorHandler = null;
+
+                completeHandler = (s, path) =>
+                {
+                    downloadService.OnProgress -= progressHandler;
+                    downloadService.OnComplete -= completeHandler;
+                    downloadService.OnError -= errorHandler;
+                    tcs.TrySetResult(true);
+                };
+
+                errorHandler = (s, error) =>
+                {
+                    downloadService.OnProgress -= progressHandler;
+                    downloadService.OnComplete -= completeHandler;
+                    downloadService.OnError -= errorHandler;
+                    tcs.TrySetResult(false);
+                };
+
+                downloadService.OnProgress += progressHandler;
+                downloadService.OnComplete += completeHandler;
+                downloadService.OnError += errorHandler;
+
+                try
+                {
+                    await downloadService.DownloadBookAsync(bookNumber);
+                    var ok = await tcs.Task;
+
+                    if (ok)
+                        success++;
+                    else
+                    {
+                        failed++;
+                        failures.Add(bookNumber.ToString());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    failures.Add($"{bookNumber}: {ex.Message}");
+                }
+            }
+
+            LoadBooks();
+
+            var summary = $"Batch download complete.\n\n" +
+                          $"Success: {success}\n" +
+                          $"Skipped (already exists): {skipped}\n" +
+                          $"Failed: {failed}";
+
+            if (failures.Count > 0)
+                summary += "\n\nFailed books:\n" + string.Join("\n", failures);
+
+            StatusLabel.Text = $"{success} downloaded, {skipped} skipped, {failed} failed";
+            await DisplayAlert("Batch Download", summary, "OK");
         }
     }
 }
