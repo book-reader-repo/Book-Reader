@@ -3,20 +3,20 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="BookViewer.Views.LibraryPage"
              BackgroundColor="#FFFFFF">
-    <Grid RowDefinitions="Auto,*,Auto">
-    
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+
         <!-- Top bar -->
         <Grid Grid.Row="0" BackgroundColor="#8BC34A" Padding="16,8"
               ColumnDefinitions="Auto,*,Auto,Auto,Auto"
               ColumnSpacing="8">
-    
+
             <Label Grid.Column="1"
                    Text="Book Viewer"
                    TextColor="White"
                    FontSize="18"
                    FontAttributes="Bold"
                    VerticalOptions="Center"/>
-    
+
             <Button Grid.Column="2"
                     Text=" ↻ Reload"
                     Clicked="OnRefreshClicked"
@@ -26,7 +26,7 @@
                     Padding="10,6"
                     FontAttributes="Bold"
                     VerticalOptions="Center"/>
-    
+
             <Button Grid.Column="3"
                     Text="⇓ Batch Download"
                     Clicked="OnBatchDownloadClicked"
@@ -36,7 +36,7 @@
                     Padding="10,6"
                     FontAttributes="Bold"
                     VerticalOptions="Center"/>
-    
+
             <Button Grid.Column="4"
                     Text=" ⬇︎ Download"
                     Clicked="OnDownloadClicked"
@@ -48,8 +48,29 @@
                     VerticalOptions="Center"/>
         </Grid>
 
+        <!-- Search bar -->
+        <Grid Grid.Row="1" BackgroundColor="#F5F5F5" Padding="16,6"
+              ColumnDefinitions="*,Auto">
+            <Entry x:Name="SearchEntry"
+                   Grid.Column="0"
+                   Placeholder="Search by title or ID..."
+                   TextColor="#333"
+                   PlaceholderColor="#999"
+                   BackgroundColor="White"
+                   FontSize="14"
+                   TextChanged="OnSearchTextChanged"/>
+            <Button Grid.Column="1"
+                    Text="✕"
+                    Clicked="OnClearSearchClicked"
+                    BackgroundColor="Transparent"
+                    TextColor="#666"
+                    FontSize="16"
+                    Padding="12,6"
+                    VerticalOptions="Center"/>
+        </Grid>
+
         <!-- Book grid -->
-        <ScrollView Grid.Row="1">
+        <ScrollView Grid.Row="2">
           <CollectionView x:Name="BooksCollection"
                           Margin="24"
                           SelectionMode="None">
@@ -73,7 +94,7 @@
                           <Frame Padding="0"
                                  CornerRadius="0"
                                  WidthRequest="160"
-                                 HeightRequest="160"
+                                 HeightRequest="200"
                                  HorizontalOptions="Center"
                                  BackgroundColor="Transparent"
                                  HasShadow="False"
@@ -93,6 +114,12 @@
                                  LineBreakMode="TailTruncation"
                                  MaxLines="2"
                                  InputTransparent="True"/>
+
+                          <Label Text="{Binding BookIdLabel}"
+                                 FontSize="10"
+                                 TextColor="#999"
+                                 HorizontalTextAlignment="Center"
+                                 InputTransparent="True"/>
                       </VerticalStackLayout>
                   </DataTemplate>
               </CollectionView.ItemTemplate>
@@ -100,7 +127,7 @@
         </ScrollView>
 
         <!-- Status bar -->
-        <Grid Grid.Row="2" BackgroundColor="#F5F5F5" Padding="12,6">
+        <Grid Grid.Row="3" BackgroundColor="#F5F5F5" Padding="12,6">
             <Label x:Name="StatusLabel"
                    Text=""
                    TextColor="#666"
