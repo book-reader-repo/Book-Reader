@@ -16,8 +16,11 @@ namespace BookViewer.Views
             _bookFolder = bookFolder;
             _bookData = bookData;
 
-            TitleLabel.Text = "Back";
-            BookTitleLabel.Text = bookData.Title;
+            // Book title goes in the nav bar (centered), matching UnitPage
+            TitleLabel.Text = bookData.Title ?? "";
+
+            // "Contents" is now the section header above the unit list
+            SectionHeaderLabel.Text = "Contents";
 
             var units = new List<UnitData>(bookData.Units);
             UnitsCollection.ItemsSource = units;

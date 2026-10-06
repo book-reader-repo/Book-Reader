@@ -172,29 +172,37 @@ namespace BookViewer.Views
                 _ => "•"
             };
         }
-
+        
         private void OnContentsTabClicked(object sender, EventArgs e)
         {
             ContentsView.IsVisible = true;
             ResourcesView.IsVisible = false;
-
-            ContentsTab.BackgroundColor = Color.FromArgb("#E0E0E0");
-            ContentsTab.TextColor = Colors.Black;
-
+        
+            bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+        
+            ContentsTab.BackgroundColor = dark ? Color.FromArgb("#48484A") : Colors.White;
+            ContentsTab.TextColor = dark ? Colors.White : Colors.Black;
+            ContentsTab.FontAttributes = FontAttributes.Bold;
+        
             ResourcesTab.BackgroundColor = Colors.Transparent;
-            ResourcesTab.TextColor = Color.FromArgb("#666666");
+            ResourcesTab.TextColor = dark ? Color.FromArgb("#98989D") : Color.FromArgb("#8E8E93");
+            ResourcesTab.FontAttributes = FontAttributes.None;
         }
-
+        
         private void OnResourcesTabClicked(object sender, EventArgs e)
         {
             ContentsView.IsVisible = false;
             ResourcesView.IsVisible = true;
-
+        
+            bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+        
             ContentsTab.BackgroundColor = Colors.Transparent;
-            ContentsTab.TextColor = Color.FromArgb("#666666");
-
-            ResourcesTab.BackgroundColor = Color.FromArgb("#E0E0E0");
-            ResourcesTab.TextColor = Colors.Black;
+            ContentsTab.TextColor = dark ? Color.FromArgb("#98989D") : Color.FromArgb("#8E8E93");
+            ContentsTab.FontAttributes = FontAttributes.None;
+        
+            ResourcesTab.BackgroundColor = dark ? Color.FromArgb("#48484A") : Colors.White;
+            ResourcesTab.TextColor = dark ? Colors.White : Colors.Black;
+            ResourcesTab.FontAttributes = FontAttributes.Bold;
         }
 
         private async void OnBackClicked(object sender, EventArgs e)

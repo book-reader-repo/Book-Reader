@@ -109,18 +109,28 @@ public partial class BookViewerPage : ContentPage
 
         _bookService.OnBookLoaded += (s, title) =>
             Dispatcher.Dispatch(() => BookTitleLabel.Text = title);
-
+        // In constructor — remove these lines:
+        // ContentWebView.BackgroundColor = Colors.Transparent;
+        // NextPageWebView.BackgroundColor = Colors.Transparent;
+        // TeacherWebView.BackgroundColor = Colors.Transparent;
+        // StudentWebView.BackgroundColor = Colors.Transparent;
+        // (they're not set in XAML anymore, remove entirely)
+        
+        // Replace the OnTwoPageSpreadToggled handler:
         _bookService.OnTwoPageSpreadToggled += (s, enabled) =>
         {
             Dispatcher.Dispatch(() =>
             {
-                SideBySideButton.Text = enabled ? "2 Pages" : "1 Page";
+                bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+        
+                SideBySideButton.Text = enabled ? "▮▮ 2 Pages" : "▯ 1 Page";
                 SideBySideButton.BackgroundColor = enabled
-                    ? Color.FromArgb("#8BC34A")
-                    : Color.FromArgb("#E0E0E0");
+                    ? Color.FromArgb("#0A84FF")
+                    : (dark ? Color.FromArgb("#2C2C2E") : Color.FromArgb("#F7F7F9"));
                 SideBySideButton.TextColor = enabled
                     ? Colors.White
-                    : Color.FromArgb("#333333");
+                    : (dark ? Colors.White : Colors.Black);
+        
                 StatusLabel.Text = enabled ? "Two-page spread" : "Single page";
                 UpdateDisplay();
             });
@@ -561,17 +571,16 @@ public partial class BookViewerPage : ContentPage
             UpdateViewModeButton();
         }
     }
-
+    
     private void UpdateViewModeButton()
     {
-        string text = _currentViewMode switch
+        ViewModeButton.Text = _currentViewMode switch
         {
-            "content" => "Content",
-            "teacher" => "Teacher",
-            "student" => "Student",
-            _ => "Content"
+            "content" => "◉ Content",
+            "teacher" => "✎ Teacher",
+            "student" => "✓ Student",
+            _ => "◉ Content"
         };
-        ViewModeButton.Text = text;
     }
 
     private void OnViewModeClicked(object sender, EventArgs e)
@@ -622,31 +631,37 @@ public partial class BookViewerPage : ContentPage
             StatusLabel.Text = "No student answers available for this page";
         }
     }
-
+    
     private void UpdateTeacherButton()
     {
         if (TeacherNotesButton == null) return;
-
-        TeacherNotesButton.Text = _currentViewMode == "teacher" ? "Hide Notes" : "Notes";
-        TeacherNotesButton.BackgroundColor = _currentViewMode == "teacher"
-            ? Color.FromArgb("#8BC34A")
-            : Color.FromArgb("#E0E0E0");
-        TeacherNotesButton.TextColor = _currentViewMode == "teacher"
+    
+        bool active = _currentViewMode == "teacher";
+        bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+    
+        TeacherNotesButton.Text = active ? "✎ Hide Notes" : "✎ Notes";
+        TeacherNotesButton.BackgroundColor = active
+            ? Color.FromArgb("#34C759")
+            : (dark ? Color.FromArgb("#2C2C2E") : Color.FromArgb("#F7F7F9"));
+        TeacherNotesButton.TextColor = active
             ? Colors.White
-            : Color.FromArgb("#333333");
+            : (dark ? Colors.White : Colors.Black);
     }
-
+        
     private void UpdateStudentButton()
     {
         if (StudentAnswersButton == null) return;
-
-        StudentAnswersButton.Text = _currentViewMode == "student" ? "Hide Answers" : "Answers";
-        StudentAnswersButton.BackgroundColor = _currentViewMode == "student"
-            ? Color.FromArgb("#8BC34A")
-            : Color.FromArgb("#E0E0E0");
-        StudentAnswersButton.TextColor = _currentViewMode == "student"
+    
+        bool active = _currentViewMode == "student";
+        bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+    
+        StudentAnswersButton.Text = active ? "✓ Hide Answers" : "✓ Answers";
+        StudentAnswersButton.BackgroundColor = active
+            ? Color.FromArgb("#34C759")
+            : (dark ? Color.FromArgb("#2C2C2E") : Color.FromArgb("#F7F7F9"));
+        StudentAnswersButton.TextColor = active
             ? Colors.White
-            : Color.FromArgb("#333333");
+            : (dark ? Colors.White : Colors.Black);
     }
 
     private async void OnBackClicked(object sender, EventArgs e)
