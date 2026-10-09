@@ -1239,6 +1239,7 @@ body, .para, .base-content, .content-overlay {
             <img class='background-img' src='{bgImage}' alt='' />
             <div class='content-overlay'>
                 <div class='base-content'>{contentHtml}</div>
+                <!--ANSWERS-HERE-->
             </div>
         </div>
     </div>
