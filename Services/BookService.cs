@@ -609,8 +609,6 @@ namespace BookViewer
                     string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
 
-                    // Extract page dimensions from the steps HTML. The source uses:
-                    //   <div id="rez" style="top:0px;width:1024px;height:1309px">
                     int pageWidth = 1024;
                     int pageHeight = 1344;
 
@@ -691,10 +689,6 @@ namespace BookViewer
             return bodyMatch.Groups[1].Value;
         }
 
-        /// <summary>
-        /// Rebuilds HTML from _para.xml, preserving x/y/width/height/textalign.
-        /// Paragraphs without coordinates render as flowing so they don't pile at 0,0.
-        /// </summary>
         private string ExtractContentFromParaXml(string paraXmlContent)
         {
             try
@@ -852,15 +846,6 @@ namespace BookViewer
             return GetPlaceholderImage();
         }
 
-        /// <summary>
-        /// Loads font.css, embeds every referenced font as base64, and appends
-        /// a CJK fallback stack with locked metrics.
-        ///
-        /// Metric choice: the source font.css uses line-height:1.5em. With that
-        /// line box height, the baseline sits at top + (L-1)*F/2 + A*F. To make
-        /// the CJK glyph top (baseline - 1.0*F) land exactly at 'top:', we need
-        /// A = 1 - (L-1)/2 = 0.75 for L=1.5. Hence ascent 75% / descent 25%.
-        /// </summary>
         public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
         {
             try
@@ -979,8 +964,8 @@ namespace BookViewer
 
                     Log($"Font embedding summary: {embeddedCount} of {totalFaces} @font-face rules embedded");
 
-                    // Metric lock tuned for line-height:1.5 (the source font.css default).
-                    // Pairs with `.para { line-height: 1.5 }` so the glyph top lands on top:.
+                    // CJK metric lock. `ascent-override: 100% / descent-override: 0%`
+                    // pairs with line-height:1 on .para to place the glyph top at top:.
                     fontCss += @"
 
 /* ==== CJK metric lock ==== */
@@ -990,8 +975,8 @@ namespace BookViewer
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC'),
          local('Noto Serif CJK TC'), local('Noto Serif CJK SC');
-    ascent-override: 75%;
-    descent-override: 25%;
+    ascent-override: 100%;
+    descent-override: 0%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -1012,8 +997,8 @@ body, .para, .base-content, .content-overlay {
     src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC');
-    ascent-override: 75%;
-    descent-override: 25%;
+    ascent-override: 100%;
+    descent-override: 0%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -1077,8 +1062,8 @@ body, .para, .base-content, .content-overlay {
     src: url('{dataUri}') format('{format}');
     font-weight: normal;
     font-style: normal;
-    ascent-override: 75%;
-    descent-override: 25%;
+    ascent-override: 100%;
+    descent-override: 0%;
     line-gap-override: 0%;
 }}";
                     }
@@ -1209,15 +1194,11 @@ body, .para, .base-content, .content-overlay {
             z-index: 2;
         }}
 
-        .content-overlay > *:not(.para) {{ position: relative; }}
-        .content-overlay > .para-abs {{ position: absolute !important; }}
+        .content-overlay > * {{ position: absolute !important; }}
 
-        /* line-height:1.5 matches the source font.css so spacing is preserved.
-           ascent-override 75% / descent-override 25% pairs with this so the
-           glyph's visual top aligns with the top: coordinate. */
         .content-overlay .para {{
             position: absolute !important;
-            line-height: 1.5 !important;
+            line-height: 1 !important;
             white-space: pre;
             font-kerning: none;
             font-feature-settings: 'kern' 0, 'liga' 0;
@@ -1251,7 +1232,6 @@ body, .para, .base-content, .content-overlay {
             var directory = Path.GetDirectoryName(filePath) ?? "";
             var fileName = Path.GetFileName(filePath) ?? "";
 
-            // Ensure page dimensions are populated for the current page
             var rawHtml = await File.ReadAllTextAsync(filePath);
             await ProcessHtmlContent(rawHtml, filePath);
 
@@ -1301,15 +1281,13 @@ body, .para, .base-content, .content-overlay {
     .page-container {{ position: relative; width: {pageWidth}px; height: {pageHeight}px; background: #ffffff; overflow: hidden; }}
     .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }}
     .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
-    .content-overlay > *:not(.para) {{ position: relative; top: 0; left: 0; }}
-    .content-overlay > .para-abs {{ position: absolute !important; }}
+    .content-overlay > * {{ position: absolute !important; top: 0; left: 0; }}
     .base-content {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }}
-    .base-content > *:not(.para) {{ position: relative; }}
-    .base-content > .para-abs {{ position: absolute !important; }}
+    .base-content > * {{ position: absolute !important; }}
 
     .base-content .para {{
         position: absolute !important;
-        line-height: 1.5 !important;
+        line-height: 1 !important;
         white-space: pre;
         font-kerning: none;
         font-feature-settings: 'kern' 0, 'liga' 0;
