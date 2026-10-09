@@ -239,9 +239,10 @@ public partial class BookViewerPage : ContentPage
     }
 
     /// <summary>
-    /// Splices an answer overlay into a known-good content HTML. The overlay
-    /// is inserted as a sibling of .base-content inside .content-overlay so
-    /// the base content always renders exactly as it does without answers.
+    /// Replaces the placeholder comment <!--ANSWERS-HERE--> in the content HTML
+    /// with the answer overlay. The placeholder lives inside .content-overlay,
+    /// immediately after .base-content, so the overlay is a sibling of the base
+    /// content and moves with the page.
     /// </summary>
     private string InjectAnswerOverlay(string contentHtml, string fragment, string viewType)
     {
@@ -251,16 +252,19 @@ public partial class BookViewerPage : ContentPage
         string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
         string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
 
-        var overlayHtml = $@"
-<div class='highlight-overlay'>
+        var overlayHtml = $@"<div class='highlight-overlay'>
 <style>.{highlightClass} {{ background: rgba(255,255,0,0.25); border: 3px solid {borderColor}; border-radius: 4px; padding: 3px; }}</style>
 {fragment}
 </div>";
 
-        int idx = contentHtml.LastIndexOf("</div>", StringComparison.OrdinalIgnoreCase);
-        if (idx > 0)
-            return contentHtml.Substring(0, idx) + overlayHtml + contentHtml.Substring(idx);
+        const string marker = "<!--ANSWERS-HERE-->";
+        int idx = contentHtml.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx >= 0)
+        {
+            return contentHtml.Substring(0, idx) + overlayHtml + contentHtml.Substring(idx + marker.Length);
+        }
 
+        // Fallback (content HTML doesn't contain the marker — shouldn't happen)
         return contentHtml + overlayHtml;
     }
 
