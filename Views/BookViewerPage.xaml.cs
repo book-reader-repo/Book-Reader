@@ -353,6 +353,8 @@ public partial class BookViewerPage : ContentPage
     private string BuildFullViewHtml(string bgImage, string baseContent, string redContent, string fileName, string fontCss, string viewType)
     {
         double zoom = _bookService.CurrentZoom;
+        int pageWidth = _bookService.CurrentPageWidth;
+        int pageHeight = _bookService.CurrentPageHeight;
 
         if (string.IsNullOrEmpty(bgImage))
             bgImage = GetPlaceholderImage();
@@ -390,8 +392,8 @@ public partial class BookViewerPage : ContentPage
                 }}
                 .page-container {{
                     position: relative;
-                    width: 1024px;
-                    height: 1344px;
+                    width: {pageWidth}px;
+                    height: {pageHeight}px;
                     flex-shrink: 0;
                     background: #ffffff;
                     box-shadow: 0 0 20px rgba(0,0,0,0.15);
@@ -414,7 +416,7 @@ public partial class BookViewerPage : ContentPage
                     width: 100%; height: 100%;
                     z-index: 2;
                 }}
-                .content-overlay > * {{ position: relative; }}
+                .content-overlay > *:not(.para) {{ position: relative; }}
                 .content-overlay > .para-abs {{ position: absolute !important; }}
                 .base-content {{
                     position: absolute;
@@ -423,15 +425,16 @@ public partial class BookViewerPage : ContentPage
                     z-index: 5;
                     pointer-events: none;
                 }}
-                .base-content > * {{ position: relative; }}
+                .base-content > *:not(.para) {{ position: relative; }}
                 .base-content > .para-abs {{ position: absolute !important; }}
 
                 /* ==== CJK paragraph alignment ====
-                   line-height is intentionally LEFT ALONE.
-                   The source font.css declares 1.5em (or whatever the book uses).
-                   Forcing it here causes vertical drift because different books
-                   use different line-heights, and the mismatch compounds per paragraph. */
+                   line-height:1 is required because the source layout positions
+                   each character with an explicit top: coordinate. Any line-height
+                   other than 1 shifts the glyph inside its own line box. */
                 .base-content .para {{
+                    position: absolute !important;
+                    line-height: 1 !important;
                     white-space: pre;
                     font-kerning: none;
                     font-feature-settings: 'kern' 0, 'liga' 0;
@@ -442,7 +445,8 @@ public partial class BookViewerPage : ContentPage
                 .base-content span,
                 .base-content div[class*='char'],
                 .base-content div[class*='word'] {{
-                    white-space: pre;
+                    position: absolute !important;
+                    line-height: 1 !important;
                 }}
 
                 .highlight-overlay {{
@@ -480,6 +484,8 @@ public partial class BookViewerPage : ContentPage
     private string BuildBaseContentHtml(string bgImage, string baseContent, string fileName, string fontCss)
     {
         double zoom = _bookService.CurrentZoom;
+        int pageWidth = _bookService.CurrentPageWidth;
+        int pageHeight = _bookService.CurrentPageHeight;
 
         if (string.IsNullOrEmpty(bgImage))
             bgImage = GetPlaceholderImage();
@@ -511,8 +517,8 @@ public partial class BookViewerPage : ContentPage
                 }}
                 .page-container {{
                     position: relative;
-                    width: 1024px;
-                    height: 1344px;
+                    width: {pageWidth}px;
+                    height: {pageHeight}px;
                     flex-shrink: 0;
                     background: #ffffff;
                     box-shadow: 0 0 20px rgba(0,0,0,0.15);
@@ -535,7 +541,7 @@ public partial class BookViewerPage : ContentPage
                     width: 100%; height: 100%;
                     z-index: 2;
                 }}
-                .content-overlay > * {{ position: relative; }}
+                .content-overlay > *:not(.para) {{ position: relative; }}
                 .content-overlay > .para-abs {{ position: absolute !important; }}
                 .base-content {{
                     position: absolute;
@@ -544,12 +550,15 @@ public partial class BookViewerPage : ContentPage
                     z-index: 5;
                     pointer-events: none;
                 }}
-                .base-content > * {{ position: relative; }}
+                .base-content > *:not(.para) {{ position: relative; }}
                 .base-content > .para-abs {{ position: absolute !important; }}
 
                 /* ==== CJK paragraph alignment ====
-                   line-height is intentionally LEFT ALONE. */
+                   line-height:1 is required because the source layout positions
+                   each character with an explicit top: coordinate. */
                 .base-content .para {{
+                    position: absolute !important;
+                    line-height: 1 !important;
                     white-space: pre;
                     font-kerning: none;
                     font-feature-settings: 'kern' 0, 'liga' 0;
@@ -560,7 +569,8 @@ public partial class BookViewerPage : ContentPage
                 .base-content span,
                 .base-content div[class*='char'],
                 .base-content div[class*='word'] {{
-                    white-space: pre;
+                    position: absolute !important;
+                    line-height: 1 !important;
                 }}
             </style>
         </head>
