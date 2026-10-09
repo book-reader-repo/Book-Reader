@@ -38,6 +38,9 @@ namespace BookViewer
         private static readonly object _logLock = new object();
         private static string _logFilePath = "";
 
+        public int CurrentPageWidth { get; private set; } = 1024;
+        public int CurrentPageHeight { get; private set; } = 1344;
+
         private string GetLogFilePath()
         {
             if (string.IsNullOrEmpty(_logFilePath))
@@ -606,7 +609,38 @@ namespace BookViewer
                     string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
 
-                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, "", "");
+                    // Extract page dimensions from the steps HTML. The source uses:
+                    //   <div id="rez" style="top:0px;width:1024px;height:1309px">
+                    int pageWidth = 1024;
+                    int pageHeight = 1344;
+
+                    var rezMatch = Regex.Match(htmlContent,
+                        @"id=[""']rez[""'][^>]*style=[""'][^""']*width\s*:\s*(\d+)px[^""']*height\s*:\s*(\d+)px",
+                        RegexOptions.IgnoreCase);
+
+                    if (rezMatch.Success)
+                    {
+                        if (int.TryParse(rezMatch.Groups[1].Value, out int w)) pageWidth = w;
+                        if (int.TryParse(rezMatch.Groups[2].Value, out int h)) pageHeight = h;
+                    }
+                    else
+                    {
+                        var bgMatch = Regex.Match(htmlContent,
+                            @"class=[""']bgcls[""'][^>]*style=[""'][^""']*width\s*:\s*(\d+)px[^""']*height\s*:\s*(\d+)px",
+                            RegexOptions.IgnoreCase);
+                        if (bgMatch.Success)
+                        {
+                            if (int.TryParse(bgMatch.Groups[1].Value, out int w)) pageWidth = w;
+                            if (int.TryParse(bgMatch.Groups[2].Value, out int h)) pageHeight = h;
+                        }
+                    }
+
+                    CurrentPageWidth = pageWidth;
+                    CurrentPageHeight = pageHeight;
+
+                    Log($"Page dimensions for {fileName}: {pageWidth}x{pageHeight}");
+
+                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, "", "", pageWidth, pageHeight);
                 }
 
                 return htmlContent;
@@ -822,9 +856,9 @@ namespace BookViewer
         /// Loads font.css, embeds every referenced font as base64, and appends
         /// a CJK fallback stack with locked metrics.
         ///
-        /// IMPORTANT: line-height is NOT overridden here. The source font.css
-        /// declares line-height per class (e.g. 1.5em). Forcing our own value
-        /// causes vertical drift because different books use different line-heights.
+        /// Metric choice: ascent 100% / descent 0% pairs with line-height:1 so
+        /// that the visible top of the glyph lines up with the top: coordinate
+        /// that the source _para.xml / _ori.html uses.
         /// </summary>
         public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
         {
@@ -944,6 +978,7 @@ namespace BookViewer
 
                     Log($"Font embedding summary: {embeddedCount} of {totalFaces} @font-face rules embedded");
 
+                    // Normalise the metric box so line-height:1 puts glyph top at the top: coordinate.
                     fontCss += @"
 
 /* ==== CJK metric lock ==== */
@@ -953,8 +988,8 @@ namespace BookViewer
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC'),
          local('Noto Serif CJK TC'), local('Noto Serif CJK SC');
-    ascent-override: 116%;
-    descent-override: 24%;
+    ascent-override: 100%;
+    descent-override: 0%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -975,8 +1010,8 @@ body, .para, .base-content, .content-overlay {
     src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC');
-    ascent-override: 116%;
-    descent-override: 24%;
+    ascent-override: 100%;
+    descent-override: 0%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -1040,8 +1075,8 @@ body, .para, .base-content, .content-overlay {
     src: url('{dataUri}') format('{format}');
     font-weight: normal;
     font-style: normal;
-    ascent-override: 116%;
-    descent-override: 24%;
+    ascent-override: 100%;
+    descent-override: 0%;
     line-gap-override: 0%;
 }}";
                     }
@@ -1086,7 +1121,8 @@ body, .para, .base-content, .content-overlay {
             }
         }
 
-        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss, string teacherAnswerHtml, string studentAnswerHtml)
+        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss,
+            string teacherAnswerHtml, string studentAnswerHtml, int pageWidth, int pageHeight)
         {
             if (string.IsNullOrEmpty(bgImage))
                 bgImage = GetPlaceholderImage();
@@ -1140,8 +1176,8 @@ body, .para, .base-content, .content-overlay {
 
         .page-container {{
             position: relative;
-            width: 1024px;
-            height: 1344px;
+            width: {pageWidth}px;
+            height: {pageHeight}px;
             flex-shrink: 0;
             background: #ffffff;
             box-shadow: 0 0 20px rgba(0,0,0,0.15);
@@ -1171,11 +1207,15 @@ body, .para, .base-content, .content-overlay {
             z-index: 2;
         }}
 
-        .content-overlay > * {{ position: relative; }}
+        .content-overlay > *:not(.para) {{ position: relative; }}
         .content-overlay > .para-abs {{ position: absolute !important; }}
 
-        /* line-height intentionally NOT set — the source font.css controls it */
+        /* line-height:1 pairs with ascent-override:100% / descent-override:0%
+           so the glyph's visible top aligns with the top: coordinate from the
+           source layout. */
         .content-overlay .para {{
+            position: absolute !important;
+            line-height: 1 !important;
             white-space: pre;
             font-kerning: none;
             font-feature-settings: 'kern' 0, 'liga' 0;
@@ -1208,6 +1248,13 @@ body, .para, .base-content, .content-overlay {
         {
             var directory = Path.GetDirectoryName(filePath) ?? "";
             var fileName = Path.GetFileName(filePath) ?? "";
+
+            // Ensure page dimensions are populated for the current page
+            var rawHtml = await File.ReadAllTextAsync(filePath);
+            await ProcessHtmlContent(rawHtml, filePath);
+
+            int pageWidth = CurrentPageWidth;
+            int pageHeight = CurrentPageHeight;
 
             string bgImage = GetStepBackgroundImage(filePath);
             string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
@@ -1248,18 +1295,19 @@ body, .para, .base-content, .content-overlay {
 <style>
     {fontCss}
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ width: 1024px; height: 1344px; overflow: hidden; background: #ffffff; }}
-    .page-container {{ position: relative; width: 1024px; height: 1344px; background: #ffffff; overflow: hidden; }}
+    html, body {{ width: {pageWidth}px; height: {pageHeight}px; overflow: hidden; background: #ffffff; }}
+    .page-container {{ position: relative; width: {pageWidth}px; height: {pageHeight}px; background: #ffffff; overflow: hidden; }}
     .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }}
     .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
-    .content-overlay > * {{ position: relative; top: 0; left: 0; }}
+    .content-overlay > *:not(.para) {{ position: relative; top: 0; left: 0; }}
     .content-overlay > .para-abs {{ position: absolute !important; }}
     .base-content {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }}
-    .base-content > * {{ position: relative; }}
+    .base-content > *:not(.para) {{ position: relative; }}
     .base-content > .para-abs {{ position: absolute !important; }}
 
-    /* line-height intentionally NOT overridden */
     .base-content .para {{
+        position: absolute !important;
+        line-height: 1 !important;
         white-space: pre;
         font-kerning: none;
         font-feature-settings: 'kern' 0, 'liga' 0;
