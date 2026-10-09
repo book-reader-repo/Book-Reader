@@ -38,6 +38,9 @@ namespace BookViewer
         private static readonly object _logLock = new object();
         private static string _logFilePath = "";
 
+        public int CurrentPageWidth { get; private set; } = 1024;
+        public int CurrentPageHeight { get; private set; } = 1309;
+
         private static string SurroundColor =>
             Application.Current?.RequestedTheme == AppTheme.Dark ? "#1C1C1E" : "#E8E8E8";
 
@@ -609,7 +612,42 @@ namespace BookViewer
                     string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
 
-                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss);
+                    // Detect page dimensions from the source steps_N.html.
+                    // Source: <div id="rez" style="top:0px;width:1024px;height:1309px;...">
+                    int pageWidth = 1024;
+                    int pageHeight = 1309;
+
+                    var rezMatch = Regex.Match(htmlContent,
+                        @"id\s*=\s*[""']rez[""'][^>]*style\s*=\s*[""'][^""']*width\s*:\s*(\d+)px[^""']*height\s*:\s*(\d+)px",
+                        RegexOptions.IgnoreCase);
+
+                    if (rezMatch.Success)
+                    {
+                        if (int.TryParse(rezMatch.Groups[1].Value, out int w)) pageWidth = w;
+                        if (int.TryParse(rezMatch.Groups[2].Value, out int h)) pageHeight = h;
+                        Log($"Detected page size from #rez: {pageWidth}x{pageHeight}");
+                    }
+                    else
+                    {
+                        var bgMatch = Regex.Match(htmlContent,
+                            @"class\s*=\s*[""']bgcls[""'][^>]*style\s*=\s*[""'][^""']*width\s*:\s*(\d+)px[^""']*height\s*:\s*(\d+)px",
+                            RegexOptions.IgnoreCase);
+                        if (bgMatch.Success)
+                        {
+                            if (int.TryParse(bgMatch.Groups[1].Value, out int w)) pageWidth = w;
+                            if (int.TryParse(bgMatch.Groups[2].Value, out int h)) pageHeight = h;
+                            Log($"Detected page size from .bgcls: {pageWidth}x{pageHeight}");
+                        }
+                        else
+                        {
+                            Log("Could not detect page size, using default 1024x1309");
+                        }
+                    }
+
+                    CurrentPageWidth = pageWidth;
+                    CurrentPageHeight = pageHeight;
+
+                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, pageWidth, pageHeight);
                 }
 
                 return htmlContent;
@@ -1045,7 +1083,7 @@ body, .para, .base-content, .content-overlay {
         }
 
         private string GetPlaceholderImage()
-            => "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%23ffffff'/%3E%3C/svg%3E";
+            => "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1309'%3E%3Crect width='1024' height='1309' fill='%23ffffff'/%3E%3C/svg%3E";
 
         private string ConvertImageToBase64HighQuality(string imagePath)
         {
@@ -1077,7 +1115,8 @@ body, .para, .base-content, .content-overlay {
             }
         }
 
-        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss)
+        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss,
+            int pageWidth, int pageHeight)
         {
             if (string.IsNullOrEmpty(bgImage))
                 bgImage = GetPlaceholderImage();
@@ -1119,7 +1158,6 @@ body, .para, .base-content, .content-overlay {
             align-items: flex-start;
             min-height: 100vh;
             padding: 0;
-            margin: 0;
         }}
 
         .page-wrapper {{
@@ -1132,10 +1170,10 @@ body, .para, .base-content, .content-overlay {
 
         .page-container {{
             position: relative;
-            width: 1024px;
-            height: 1344px;
+            width: {pageWidth}px;
+            height: {pageHeight}px;
             flex-shrink: 0;
-            margin: 10px;
+            margin: 0;
             background: #ffffff;
             box-shadow: 0 0 20px rgba(0,0,0,0.15);
             overflow: hidden;
@@ -1150,7 +1188,8 @@ body, .para, .base-content, .content-overlay {
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain;
+            /* No object-fit — the img stretches to fill the container, matching
+               source steps.css: img.bgcls { width:100%; height:100% } */
             pointer-events: none;
             z-index: 1;
         }}
@@ -1184,7 +1223,6 @@ body, .para, .base-content, .content-overlay {
             -webkit-text-size-adjust: 100%;
         }}
 
-        /* Answer overlay — same positioning model as .base-content */
         .highlight-overlay {{
             position: absolute;
             top: 0; left: 0;
@@ -1221,11 +1259,16 @@ body, .para, .base-content, .content-overlay {
             var directory = Path.GetDirectoryName(filePath) ?? "";
             var fileName = Path.GetFileName(filePath) ?? "";
 
+            var rawHtml = await File.ReadAllTextAsync(filePath);
+            await ProcessHtmlContent(rawHtml, filePath);
+
+            int pageWidth = CurrentPageWidth;
+            int pageHeight = CurrentPageHeight;
+
             string bgImage = GetStepBackgroundImage(filePath);
             string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
             string fontCss = await GetFontCssWithEmbeddedFonts(directory);
 
-            // Build the answer overlay fragments
             string teacherFragment = "";
             string studentFragment = "";
 
@@ -1261,9 +1304,9 @@ body, .para, .base-content, .content-overlay {
 <style>
     {fontCss}
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ width: 1024px; height: 1344px; overflow: hidden; background: #ffffff; }}
-    .page-container {{ position: relative; width: 1024px; height: 1344px; background: #ffffff; overflow: hidden; }}
-    .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }}
+    html, body {{ width: {pageWidth}px; height: {pageHeight}px; overflow: hidden; background: #ffffff; }}
+    .page-container {{ position: relative; width: {pageWidth}px; height: {pageHeight}px; background: #ffffff; overflow: hidden; }}
+    .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }}
     .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
     .content-overlay > * {{ position: absolute !important; top: 0; left: 0; }}
     .base-content {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }}
