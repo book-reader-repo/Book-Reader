@@ -283,10 +283,6 @@ public partial class BookViewerPage : ContentPage
         }
     }
 
-    /// <summary>
-    /// Rebuilds HTML from _para.xml, preserving x/y/width/height/textalign.
-    /// Paragraphs without coordinates are emitted as flowing (not absolute) so they don't pile at 0,0.
-    /// </summary>
     private string BuildContentFromParaXml(string paraXmlContent)
     {
         try
@@ -353,8 +349,6 @@ public partial class BookViewerPage : ContentPage
     private string BuildFullViewHtml(string bgImage, string baseContent, string redContent, string fileName, string fontCss, string viewType)
     {
         double zoom = _bookService.CurrentZoom;
-        int pageWidth = _bookService.CurrentPageWidth;
-        int pageHeight = _bookService.CurrentPageHeight;
 
         if (string.IsNullOrEmpty(bgImage))
             bgImage = GetPlaceholderImage();
@@ -392,8 +386,8 @@ public partial class BookViewerPage : ContentPage
                 }}
                 .page-container {{
                     position: relative;
-                    width: {pageWidth}px;
-                    height: {pageHeight}px;
+                    width: 1024px;
+                    height: 1344px;
                     flex-shrink: 0;
                     background: #ffffff;
                     box-shadow: 0 0 20px rgba(0,0,0,0.15);
@@ -416,8 +410,7 @@ public partial class BookViewerPage : ContentPage
                     width: 100%; height: 100%;
                     z-index: 2;
                 }}
-                .content-overlay > *:not(.para) {{ position: relative; }}
-                .content-overlay > .para-abs {{ position: absolute !important; }}
+                .content-overlay > * {{ position: absolute !important; }}
                 .base-content {{
                     position: absolute;
                     top: 0; left: 0;
@@ -425,15 +418,11 @@ public partial class BookViewerPage : ContentPage
                     z-index: 5;
                     pointer-events: none;
                 }}
-                .base-content > *:not(.para) {{ position: relative; }}
-                .base-content > .para-abs {{ position: absolute !important; }}
+                .base-content > * {{ position: absolute !important; }}
 
-                /* line-height:1.5em matches the source font.css so spacing is preserved.
-                   ascent-override / descent-override on the embedded fonts position the
-                   glyph inside that line box so the visual top matches top:. */
                 .base-content .para {{
                     position: absolute !important;
-                    line-height: 1.5 !important;
+                    line-height: 1 !important;
                     white-space: pre;
                     font-kerning: none;
                     font-feature-settings: 'kern' 0, 'liga' 0;
@@ -445,7 +434,7 @@ public partial class BookViewerPage : ContentPage
                 .base-content div[class*='char'],
                 .base-content div[class*='word'] {{
                     position: absolute !important;
-                    line-height: 1.5 !important;
+                    line-height: 1 !important;
                 }}
 
                 .highlight-overlay {{
@@ -483,8 +472,6 @@ public partial class BookViewerPage : ContentPage
     private string BuildBaseContentHtml(string bgImage, string baseContent, string fileName, string fontCss)
     {
         double zoom = _bookService.CurrentZoom;
-        int pageWidth = _bookService.CurrentPageWidth;
-        int pageHeight = _bookService.CurrentPageHeight;
 
         if (string.IsNullOrEmpty(bgImage))
             bgImage = GetPlaceholderImage();
@@ -516,8 +503,8 @@ public partial class BookViewerPage : ContentPage
                 }}
                 .page-container {{
                     position: relative;
-                    width: {pageWidth}px;
-                    height: {pageHeight}px;
+                    width: 1024px;
+                    height: 1344px;
                     flex-shrink: 0;
                     background: #ffffff;
                     box-shadow: 0 0 20px rgba(0,0,0,0.15);
@@ -540,8 +527,7 @@ public partial class BookViewerPage : ContentPage
                     width: 100%; height: 100%;
                     z-index: 2;
                 }}
-                .content-overlay > *:not(.para) {{ position: relative; }}
-                .content-overlay > .para-abs {{ position: absolute !important; }}
+                .content-overlay > * {{ position: absolute !important; }}
                 .base-content {{
                     position: absolute;
                     top: 0; left: 0;
@@ -549,13 +535,11 @@ public partial class BookViewerPage : ContentPage
                     z-index: 5;
                     pointer-events: none;
                 }}
-                .base-content > *:not(.para) {{ position: relative; }}
-                .base-content > .para-abs {{ position: absolute !important; }}
+                .base-content > * {{ position: absolute !important; }}
 
-                /* line-height:1.5em matches source font.css */
                 .base-content .para {{
                     position: absolute !important;
-                    line-height: 1.5 !important;
+                    line-height: 1 !important;
                     white-space: pre;
                     font-kerning: none;
                     font-feature-settings: 'kern' 0, 'liga' 0;
@@ -567,7 +551,7 @@ public partial class BookViewerPage : ContentPage
                 .base-content div[class*='char'],
                 .base-content div[class*='word'] {{
                     position: absolute !important;
-                    line-height: 1.5 !important;
+                    line-height: 1 !important;
                 }}
             </style>
         </head>
