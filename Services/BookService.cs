@@ -38,8 +38,8 @@ namespace BookViewer
         private static readonly object _logLock = new object();
         private static string _logFilePath = "";
 
-        public int CurrentPageWidth { get; private set; } = 1024;
-        public int CurrentPageHeight { get; private set; } = 1344;
+        private static string SurroundColor =>
+            Application.Current?.RequestedTheme == AppTheme.Dark ? "#1C1C1E" : "#E8E8E8";
 
         private string GetLogFilePath()
         {
@@ -609,36 +609,7 @@ namespace BookViewer
                     string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
 
-                    int pageWidth = 1024;
-                    int pageHeight = 1344;
-
-                    var rezMatch = Regex.Match(htmlContent,
-                        @"id=[""']rez[""'][^>]*style=[""'][^""']*width\s*:\s*(\d+)px[^""']*height\s*:\s*(\d+)px",
-                        RegexOptions.IgnoreCase);
-
-                    if (rezMatch.Success)
-                    {
-                        if (int.TryParse(rezMatch.Groups[1].Value, out int w)) pageWidth = w;
-                        if (int.TryParse(rezMatch.Groups[2].Value, out int h)) pageHeight = h;
-                    }
-                    else
-                    {
-                        var bgMatch = Regex.Match(htmlContent,
-                            @"class=[""']bgcls[""'][^>]*style=[""'][^""']*width\s*:\s*(\d+)px[^""']*height\s*:\s*(\d+)px",
-                            RegexOptions.IgnoreCase);
-                        if (bgMatch.Success)
-                        {
-                            if (int.TryParse(bgMatch.Groups[1].Value, out int w)) pageWidth = w;
-                            if (int.TryParse(bgMatch.Groups[2].Value, out int h)) pageHeight = h;
-                        }
-                    }
-
-                    CurrentPageWidth = pageWidth;
-                    CurrentPageHeight = pageHeight;
-
-                    Log($"Page dimensions for {fileName}: {pageWidth}x{pageHeight}");
-
-                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, "", "", pageWidth, pageHeight);
+                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss);
                 }
 
                 return htmlContent;
@@ -964,8 +935,6 @@ namespace BookViewer
 
                     Log($"Font embedding summary: {embeddedCount} of {totalFaces} @font-face rules embedded");
 
-                    // CJK metric lock. `ascent-override: 100% / descent-override: 0%`
-                    // pairs with line-height:1 on .para to place the glyph top at top:.
                     fontCss += @"
 
 /* ==== CJK metric lock ==== */
@@ -1108,8 +1077,7 @@ body, .para, .base-content, .content-overlay {
             }
         }
 
-        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss,
-            string teacherAnswerHtml, string studentAnswerHtml, int pageWidth, int pageHeight)
+        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss)
         {
             if (string.IsNullOrEmpty(bgImage))
                 bgImage = GetPlaceholderImage();
@@ -1118,6 +1086,7 @@ body, .para, .base-content, .content-overlay {
                 contentHtml = "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
 
             double zoom = _currentZoom;
+            string surround = SurroundColor;
 
             return $@"
 <!DOCTYPE html>
@@ -1139,7 +1108,7 @@ body, .para, .base-content, .content-overlay {
             width: 100%;
             height: 100%;
             overflow: auto;
-            background: #E8E8E8;
+            background: {surround};
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }}
@@ -1163,9 +1132,10 @@ body, .para, .base-content, .content-overlay {
 
         .page-container {{
             position: relative;
-            width: {pageWidth}px;
-            height: {pageHeight}px;
+            width: 1024px;
+            height: 1344px;
             flex-shrink: 0;
+            margin: 10px;
             background: #ffffff;
             box-shadow: 0 0 20px rgba(0,0,0,0.15);
             overflow: hidden;
@@ -1195,8 +1165,15 @@ body, .para, .base-content, .content-overlay {
         }}
 
         .content-overlay > * {{ position: absolute !important; }}
-
-        .content-overlay .para {{
+        .base-content {{
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 5;
+            pointer-events: none;
+        }}
+        .base-content > * {{ position: absolute !important; }}
+        .base-content .para {{
             position: absolute !important;
             line-height: 1 !important;
             white-space: pre;
@@ -1206,6 +1183,20 @@ body, .para, .base-content, .content-overlay {
             -webkit-font-smoothing: antialiased;
             -webkit-text-size-adjust: 100%;
         }}
+
+        /* Answer overlay — same positioning model as .base-content */
+        .highlight-overlay {{
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            overflow: visible;
+        }}
+        .highlight-overlay > *,
+        .highlight-overlay > * > * {{
+            position: absolute !important;
+        }}
     </style>
 </head>
 <body>
@@ -1213,9 +1204,7 @@ body, .para, .base-content, .content-overlay {
         <div class='page-container'>
             <img class='background-img' src='{bgImage}' alt='' />
             <div class='content-overlay'>
-                {contentHtml}
-                {teacherAnswerHtml}
-                {studentAnswerHtml}
+                <div class='base-content'>{contentHtml}</div>
             </div>
         </div>
     </div>
@@ -1232,18 +1221,13 @@ body, .para, .base-content, .content-overlay {
             var directory = Path.GetDirectoryName(filePath) ?? "";
             var fileName = Path.GetFileName(filePath) ?? "";
 
-            var rawHtml = await File.ReadAllTextAsync(filePath);
-            await ProcessHtmlContent(rawHtml, filePath);
-
-            int pageWidth = CurrentPageWidth;
-            int pageHeight = CurrentPageHeight;
-
             string bgImage = GetStepBackgroundImage(filePath);
             string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
             string fontCss = await GetFontCssWithEmbeddedFonts(directory);
 
-            string teacherHtml = "";
-            string studentHtml = "";
+            // Build the answer overlay fragments
+            string teacherFragment = "";
+            string studentFragment = "";
 
             if (includeAnswers)
             {
@@ -1252,7 +1236,7 @@ body, .para, .base-content, .content-overlay {
                     var redContent = await GetRedAnswerContentAsync(filePath, "teacherNotes");
                     if (!string.IsNullOrEmpty(redContent))
                     {
-                        teacherHtml = $@"<div class='highlight-overlay teacher-overlay'>
+                        teacherFragment = $@"<div class='highlight-overlay teacher-overlay'>
 <style>.tbnote {{ background: rgba(255,255,0,0.25); border: 3px solid #3498db; border-radius: 4px; padding: 3px; }}</style>
 {redContent}</div>";
                     }
@@ -1263,7 +1247,7 @@ body, .para, .base-content, .content-overlay {
                     var redContent = await GetRedAnswerContentAsync(filePath, "studentAnswers");
                     if (!string.IsNullOrEmpty(redContent))
                     {
-                        studentHtml = $@"<div class='highlight-overlay student-overlay'>
+                        studentFragment = $@"<div class='highlight-overlay student-overlay'>
 <style>.sa {{ background: rgba(255,255,0,0.25); border: 3px solid #2ecc71; border-radius: 4px; padding: 3px; }}</style>
 {redContent}</div>";
                     }
@@ -1277,14 +1261,13 @@ body, .para, .base-content, .content-overlay {
 <style>
     {fontCss}
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ width: {pageWidth}px; height: {pageHeight}px; overflow: hidden; background: #ffffff; }}
-    .page-container {{ position: relative; width: {pageWidth}px; height: {pageHeight}px; background: #ffffff; overflow: hidden; }}
+    html, body {{ width: 1024px; height: 1344px; overflow: hidden; background: #ffffff; }}
+    .page-container {{ position: relative; width: 1024px; height: 1344px; background: #ffffff; overflow: hidden; }}
     .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }}
     .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
     .content-overlay > * {{ position: absolute !important; top: 0; left: 0; }}
     .base-content {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }}
     .base-content > * {{ position: absolute !important; }}
-
     .base-content .para {{
         position: absolute !important;
         line-height: 1 !important;
@@ -1306,8 +1289,8 @@ body, .para, .base-content, .content-overlay {
     <img class='background-img' src='{bgImage}' />
     <div class='content-overlay'>
         <div class='base-content'>{contentHtml}</div>
-        {teacherHtml}
-        {studentHtml}
+        {teacherFragment}
+        {studentFragment}
     </div>
 </div>
 </body>
