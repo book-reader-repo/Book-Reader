@@ -428,13 +428,12 @@ public partial class BookViewerPage : ContentPage
                 .base-content > *:not(.para) {{ position: relative; }}
                 .base-content > .para-abs {{ position: absolute !important; }}
 
-                /* ==== CJK paragraph alignment ====
-                   line-height:1 is required because the source layout positions
-                   each character with an explicit top: coordinate. Any line-height
-                   other than 1 shifts the glyph inside its own line box. */
+                /* line-height:1.5em matches the source font.css so spacing is preserved.
+                   ascent-override / descent-override on the embedded fonts position the
+                   glyph inside that line box so the visual top matches top:. */
                 .base-content .para {{
                     position: absolute !important;
-                    line-height: 1 !important;
+                    line-height: 1.5 !important;
                     white-space: pre;
                     font-kerning: none;
                     font-feature-settings: 'kern' 0, 'liga' 0;
@@ -446,7 +445,7 @@ public partial class BookViewerPage : ContentPage
                 .base-content div[class*='char'],
                 .base-content div[class*='word'] {{
                     position: absolute !important;
-                    line-height: 1 !important;
+                    line-height: 1.5 !important;
                 }}
 
                 .highlight-overlay {{
@@ -553,12 +552,10 @@ public partial class BookViewerPage : ContentPage
                 .base-content > *:not(.para) {{ position: relative; }}
                 .base-content > .para-abs {{ position: absolute !important; }}
 
-                /* ==== CJK paragraph alignment ====
-                   line-height:1 is required because the source layout positions
-                   each character with an explicit top: coordinate. */
+                /* line-height:1.5em matches source font.css */
                 .base-content .para {{
                     position: absolute !important;
-                    line-height: 1 !important;
+                    line-height: 1.5 !important;
                     white-space: pre;
                     font-kerning: none;
                     font-feature-settings: 'kern' 0, 'liga' 0;
@@ -570,7 +567,7 @@ public partial class BookViewerPage : ContentPage
                 .base-content div[class*='char'],
                 .base-content div[class*='word'] {{
                     position: absolute !important;
-                    line-height: 1 !important;
+                    line-height: 1.5 !important;
                 }}
             </style>
         </head>
