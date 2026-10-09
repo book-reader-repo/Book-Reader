@@ -12,8 +12,8 @@ namespace BookViewer
 {
     public class BookService
     {
-        private string _currentBookPath;
-        private string _currentBookUid;
+        private string _currentBookPath = "";
+        private string _currentBookUid = "";
         private List<string> _pageFiles = new();
         private int _currentPageIndex = -1;
         private readonly DecryptionService _decryptionService = new();
@@ -25,7 +25,7 @@ namespace BookViewer
         private bool _twoPageSpread = false;
         private string _nextPageHtml = "";
         private double _currentZoom = 1.0;
-        private string _tempFolder;
+        private string _tempFolder = "";
 
         private bool _showTeacherNotes = false;
         private bool _showStudentAnswers = false;
@@ -36,16 +36,15 @@ namespace BookViewer
         private readonly Dictionary<string, int> _sectionFirstIndex = new();
 
         private static readonly object _logLock = new object();
-        private static string _logFilePath = null;
+        private static string _logFilePath = "";
 
         private string GetLogFilePath()
         {
-            if (_logFilePath == null)
+            if (string.IsNullOrEmpty(_logFilePath))
             {
                 try
                 {
-                    string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                    string logFolder = Path.Combine(documentsPath, "BookViewer");
+                    string logFolder = Path.Combine(FileSystem.AppDataDirectory, "Logs");
                     Directory.CreateDirectory(logFolder);
                     _logFilePath = Path.Combine(logFolder, $"BookService_{DateTime.Now:yyyyMMdd_HHmmss}.log");
                 }
@@ -154,9 +153,6 @@ namespace BookViewer
                 _ = LoadPageAsync(_currentPageIndex);
         }
 
-        // ============================================================
-        // Lookup helpers
-        // ============================================================
         public int GetIndexForStepFile(string stepFile)
         {
             if (string.IsNullOrEmpty(stepFile)) return -1;
@@ -302,9 +298,6 @@ namespace BookViewer
 
                 Log($"Sorted {_pageFiles.Count} page files");
 
-                // ============================================================
-                // Build maps
-                // ============================================================
                 _stepFileToIndex.Clear();
                 _folioToStepFile.Clear();
                 _sectionFolioMap.Clear();
@@ -323,7 +316,6 @@ namespace BookViewer
                         _stepFileToIndex[name] = i;
                 }
 
-                // Parse book.xml: section → first seqindex, plus folio map
                 try
                 {
                     var bookDoc = new XmlDocument();
@@ -375,7 +367,6 @@ namespace BookViewer
                     Log($"Error parsing book.xml: {ex.Message}");
                 }
 
-                // For each section folder, read pages.xml as fallback
                 var sectionFolders = Directory.GetDirectories(folderPath, "s_*");
                 foreach (var sectionDir in sectionFolders)
                 {
@@ -666,6 +657,10 @@ namespace BookViewer
             return bodyMatch.Groups[1].Value;
         }
 
+        /// <summary>
+        /// Rebuilds HTML from _para.xml, preserving x/y/width/height/textalign so each
+        /// Chinese line lands on its intended coordinate.
+        /// </summary>
         private string ExtractContentFromParaXml(string paraXmlContent)
         {
             try
@@ -673,23 +668,50 @@ namespace BookViewer
                 var doc = new XmlDocument();
                 doc.LoadXml(paraXmlContent);
                 var parasNode = doc.SelectSingleNode("//paras");
-                if (parasNode != null)
+                if (parasNode == null) return "";
+
+                var sb = new StringBuilder();
+
+                foreach (XmlNode child in parasNode.ChildNodes)
                 {
-                    var result = "";
-                    foreach (XmlNode child in parasNode.ChildNodes)
-                    {
-                        if (child.Name == "para")
-                        {
-                            var text = child.InnerText;
-                            var style = child.Attributes?["style"]?.Value ?? "";
-                            result += $"<div class='para' style='{style}'>{text}</div>";
-                        }
-                    }
-                    return result;
+                    if (child.Name != "para") continue;
+
+                    var text = child.InnerText;
+                    if (string.IsNullOrEmpty(text)) continue;
+
+                    text = System.Security.SecurityElement.Escape(text) ?? text;
+
+                    var style = child.Attributes?["style"]?.Value ?? "";
+                    var x     = child.Attributes?["x"]?.Value;
+                    var y     = child.Attributes?["y"]?.Value;
+                    var w     = child.Attributes?["width"]?.Value;
+                    var h     = child.Attributes?["height"]?.Value;
+                    var align = child.Attributes?["textalign"]?.Value;
+
+                    var pos = new StringBuilder();
+                    if (!string.IsNullOrEmpty(style)) pos.Append(style).Append(';');
+
+                    if (!string.IsNullOrEmpty(x)) pos.Append("left:").Append(x).Append("px;");
+                    if (!string.IsNullOrEmpty(y)) pos.Append("top:").Append(y).Append("px;");
+                    if (!string.IsNullOrEmpty(w)) pos.Append("width:").Append(w).Append("px;");
+                    if (!string.IsNullOrEmpty(h)) pos.Append("height:").Append(h).Append("px;");
+                    if (!string.IsNullOrEmpty(align)) pos.Append("text-align:").Append(align).Append(';');
+
+                    if (string.IsNullOrEmpty(align)) pos.Append("text-align:left;");
+
+                    sb.Append("<div class='para' style=\"")
+                      .Append(pos.ToString())
+                      .Append("\">")
+                      .Append(text)
+                      .Append("</div>");
                 }
+
+                return sb.ToString();
             }
-            catch { }
-            return "";
+            catch
+            {
+                return "";
+            }
         }
 
         public async Task<string> GetRedAnswerContentAsync(string filePath, string answerType)
@@ -787,9 +809,11 @@ namespace BookViewer
             return GetPlaceholderImage();
         }
 
-        // ============================================================
-        // Get Font CSS with embedded fonts
-        // ============================================================
+        /// <summary>
+        /// Loads font.css, embeds every referenced font as base64, and appends
+        /// a CJK fallback stack with locked metrics so Chinese characters land
+        /// on the same y-coordinate regardless of which font renders them.
+        /// </summary>
         public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
         {
             try
@@ -818,7 +842,6 @@ namespace BookViewer
                     if (!Directory.Exists(fontsFolder))
                         fontsFolder = Path.Combine(_currentBookPath, "fonts");
 
-                    // ---- Build case-insensitive font file index ----
                     Dictionary<string, string> fontFileIndex = null;
                     if (Directory.Exists(fontsFolder))
                     {
@@ -880,14 +903,6 @@ namespace BookViewer
                                 var fontBytes = File.ReadAllBytes(fullFontPath);
                                 var fontBase64 = Convert.ToBase64String(fontBytes);
                                 var ext = Path.GetExtension(fullFontPath).ToLower();
-                                var format = ext switch
-                                {
-                                    ".ttf" => "truetype",
-                                    ".otf" => "opentype",
-                                    ".woff" => "woff",
-                                    ".woff2" => "woff2",
-                                    _ => "truetype"
-                                };
                                 var mimeType = ext switch
                                 {
                                     ".ttf" => "font/ttf",
@@ -912,20 +927,55 @@ namespace BookViewer
                             }
                         }
                         if (faceWasEmbedded)
-                        {
                             embeddedCount++;
-                            // No metric overrides. Let the browser use the font's own metrics.
-                            // The CSS file already declares line-height per rule.
-                        }
                     }
 
                     Log($"Font embedding summary: {embeddedCount} of {totalFaces} @font-face rules embedded");
+
+                    // ---- CJK metric lock ----
+                    // Every Chinese font has a different ascent/descent ratio.
+                    // Without this block, the same 'top: Npx' renders N + Δ pixels
+                    // down, where Δ varies per font (often 20–40% of font-size).
+                    // These overrides normalise all CJK fonts to the same em-box.
+                    fontCss += @"
+
+/* ==== CJK metric lock ==== */
+@font-face {
+    font-family: 'CJKLocked';
+    src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
+         local('Microsoft JhengHei'), local('Microsoft YaHei'),
+         local('Noto Sans CJK TC'), local('Noto Sans CJK SC'),
+         local('Noto Serif CJK TC'), local('Noto Serif CJK SC');
+    ascent-override: 88%;
+    descent-override: 12%;
+    line-gap-override: 0%;
+}
+body, .para, .base-content, .content-overlay {
+    font-family: 'CJKLocked', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
+";
 
                     _fontCache[directory] = fontCss;
                     return fontCss;
                 }
 
                 fontCss = await GenerateFontCssFromFiles();
+                fontCss += @"
+
+/* ==== CJK metric lock ==== */
+@font-face {
+    font-family: 'CJKLocked';
+    src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
+         local('Microsoft JhengHei'), local('Microsoft YaHei'),
+         local('Noto Sans CJK TC'), local('Noto Sans CJK SC');
+    ascent-override: 88%;
+    descent-override: 12%;
+    line-gap-override: 0%;
+}
+body, .para, .base-content, .content-overlay {
+    font-family: 'CJKLocked', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
+";
                 _fontCache[directory] = fontCss;
                 return fontCss;
             }
@@ -983,8 +1033,8 @@ namespace BookViewer
     src: url('{dataUri}') format('{format}');
     font-weight: normal;
     font-style: normal;
-    ascent-override: 90%;
-    descent-override: 20%;
+    ascent-override: 88%;
+    descent-override: 12%;
     line-gap-override: 0%;
 }}";
                     }
@@ -1029,9 +1079,6 @@ namespace BookViewer
             }
         }
 
-        // ============================================================
-        // Build Overlay HTML
-        // ============================================================
         private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss, string teacherAnswerHtml, string studentAnswerHtml)
         {
             if (string.IsNullOrEmpty(bgImage))
@@ -1120,6 +1167,18 @@ namespace BookViewer
         .content-overlay > * {{
             position: absolute !important;
         }}
+
+        /* ==== CJK paragraph alignment ==== */
+        .content-overlay .para {{
+            position: absolute !important;
+            line-height: 1 !important;
+            white-space: pre;
+            font-kerning: none;
+            font-feature-settings: 'kern' 0, 'liga' 0;
+            text-rendering: geometricPrecision;
+            -webkit-font-smoothing: antialiased;
+            -webkit-text-size-adjust: 100%;
+        }}
     </style>
 </head>
 <body>
@@ -1192,6 +1251,15 @@ namespace BookViewer
     .content-overlay > * {{ position: absolute !important; top: 0; left: 0; }}
     .base-content {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }}
     .base-content > * {{ position: absolute !important; }}
+    .base-content .para {{
+        position: absolute !important;
+        line-height: 1 !important;
+        white-space: pre;
+        font-kerning: none;
+        font-feature-settings: 'kern' 0, 'liga' 0;
+        text-rendering: geometricPrecision;
+        -webkit-font-smoothing: antialiased;
+    }}
     .highlight-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; overflow: visible; }}
     .highlight-overlay > *, .highlight-overlay > * > * {{ position: absolute !important; }}
     .teacher-overlay .tbnote, .highlight-overlay .tbnote {{ background: rgba(255,255,0,0.25); border: 3px solid #3498db; border-radius: 4px; padding: 3px; }}
