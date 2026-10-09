@@ -17,8 +17,8 @@ public partial class BookViewerPage : ContentPage
     private bool _showTeacherNotes = false;
     private bool _showStudentAnswers = false;
     private string _currentContentHtml = "";
-    private string _currentTeacherHtml = "";
-    private string _currentStudentHtml = "";
+    private string _currentTeacherFragment = "";
+    private string _currentStudentFragment = "";
     private string _currentViewMode = "content";
     private bool _bookLoaded = false;
     private int _startFolio = 1;
@@ -26,6 +26,9 @@ public partial class BookViewerPage : ContentPage
 
     private static readonly object _logLock = new object();
     private static string _logFilePath = "";
+
+    private static string SurroundColor =>
+        Application.Current?.RequestedTheme == AppTheme.Dark ? "#1C1C1E" : "#E8E8E8";
 
     private string GetLogFilePath()
     {
@@ -205,18 +208,11 @@ public partial class BookViewerPage : ContentPage
     {
         try
         {
+            _currentTeacherFragment = "";
             if (_bookService.CurrentPageIndex >= 0 && _bookService.CurrentPageIndex < _bookService.PageFiles.Count)
             {
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
-                var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileName(filePath) ?? "";
-
-                string baseContent = await GetBaseContentAsync(filePath);
-                string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "teacherNotes");
-                string bgImage = _bookService.GetStepBackgroundImage(filePath);
-                string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
-
-                _currentTeacherHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "teacherNotes");
+                _currentTeacherFragment = await _bookService.GetRedAnswerContentAsync(filePath, "teacherNotes");
             }
         }
         catch (Exception ex)
@@ -229,18 +225,11 @@ public partial class BookViewerPage : ContentPage
     {
         try
         {
+            _currentStudentFragment = "";
             if (_bookService.CurrentPageIndex >= 0 && _bookService.CurrentPageIndex < _bookService.PageFiles.Count)
             {
                 var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
-                var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileName(filePath) ?? "";
-
-                string baseContent = await GetBaseContentAsync(filePath);
-                string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "studentAnswers");
-                string bgImage = _bookService.GetStepBackgroundImage(filePath);
-                string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
-
-                _currentStudentHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "studentAnswers");
+                _currentStudentFragment = await _bookService.GetRedAnswerContentAsync(filePath, "studentAnswers");
             }
         }
         catch (Exception ex)
@@ -249,321 +238,35 @@ public partial class BookViewerPage : ContentPage
         }
     }
 
-    private async Task<string> GetBaseContentAsync(string filePath)
+    /// <summary>
+    /// Splices an answer overlay into a known-good content HTML. The overlay
+    /// is inserted as a sibling of .base-content inside .content-overlay.
+    /// This guarantees the base content renders exactly as it does without
+    /// answers, regardless of what the answer fragment contains.
+    /// </summary>
+    private string InjectAnswerOverlay(string contentHtml, string fragment, string viewType)
     {
-        try
-        {
-            var directory = Path.GetDirectoryName(filePath) ?? "";
-            var fileName = Path.GetFileName(filePath) ?? "";
-            var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-
-            string oriHtmlPath = Path.Combine(directory, nameWithoutExt + "_ori.html");
-            if (File.Exists(oriHtmlPath))
-            {
-                string oriContent = await File.ReadAllTextAsync(oriHtmlPath);
-                var bodyMatch = Regex.Match(oriContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
-                if (bodyMatch.Success)
-                    return bodyMatch.Groups[1].Value;
-                return oriContent;
-            }
-
-            string paraXmlPath = Path.Combine(directory, nameWithoutExt + "_para.xml");
-            if (File.Exists(paraXmlPath))
-            {
-                string paraContent = await File.ReadAllTextAsync(paraXmlPath);
-                return BuildContentFromParaXml(paraContent);
-            }
-
-            return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
-        }
-        catch (Exception ex)
-        {
-            Log($"Error getting base content: {ex.Message}");
-            return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
-        }
-    }
-
-    private string BuildContentFromParaXml(string paraXmlContent)
-    {
-        try
-        {
-            var doc = new XmlDocument();
-            doc.LoadXml(paraXmlContent);
-            var parasNode = doc.SelectSingleNode("//paras");
-            if (parasNode == null) return "";
-
-            var sb = new StringBuilder();
-
-            foreach (XmlNode child in parasNode.ChildNodes)
-            {
-                if (child.Name != "para") continue;
-
-                var text = child.InnerText;
-                if (string.IsNullOrEmpty(text)) continue;
-
-                text = System.Security.SecurityElement.Escape(text) ?? text;
-
-                var style = child.Attributes?["style"]?.Value ?? "";
-                var x     = child.Attributes?["x"]?.Value;
-                var y     = child.Attributes?["y"]?.Value;
-                var w     = child.Attributes?["width"]?.Value;
-                var h     = child.Attributes?["height"]?.Value;
-                var align = child.Attributes?["textalign"]?.Value;
-
-                bool hasCoords = !string.IsNullOrEmpty(x) && !string.IsNullOrEmpty(y);
-
-                var pos = new StringBuilder();
-                if (!string.IsNullOrEmpty(style)) pos.Append(style).Append(';');
-
-                if (hasCoords)
-                {
-                    pos.Append("position:absolute;");
-                    pos.Append("left:").Append(x).Append("px;");
-                    pos.Append("top:").Append(y).Append("px;");
-                }
-
-                if (!string.IsNullOrEmpty(w)) pos.Append("width:").Append(w).Append("px;");
-                if (!string.IsNullOrEmpty(h)) pos.Append("height:").Append(h).Append("px;");
-                if (!string.IsNullOrEmpty(align)) pos.Append("text-align:").Append(align).Append(';');
-
-                if (string.IsNullOrEmpty(align)) pos.Append("text-align:left;");
-
-                var cls = hasCoords ? "para para-abs" : "para para-flow";
-
-                sb.Append("<div class='").Append(cls).Append("' style=\"")
-                  .Append(pos.ToString())
-                  .Append("\">")
-                  .Append(text)
-                  .Append("</div>");
-            }
-
-            return sb.ToString();
-        }
-        catch (Exception ex)
-        {
-            Log($"Error building content from para XML: {ex.Message}");
-            return "";
-        }
-    }
-
-    private string BuildFullViewHtml(string bgImage, string baseContent, string redContent, string fileName, string fontCss, string viewType)
-    {
-        double zoom = _bookService.CurrentZoom;
-
-        if (string.IsNullOrEmpty(bgImage))
-            bgImage = GetPlaceholderImage();
+        if (string.IsNullOrEmpty(fragment))
+            return contentHtml;
 
         string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
         string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
 
-        if (string.IsNullOrEmpty(redContent))
-            return BuildBaseContentHtml(bgImage, baseContent, fileName, fontCss);
+        var overlayHtml = $@"
+<div class='highlight-overlay'>
+<style>.{highlightClass} {{ background: rgba(255,255,0,0.25); border: 3px solid {borderColor}; border-radius: 4px; padding: 3px; }}</style>
+{fragment}
+</div>";
 
-        return $@"
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset='UTF-8'>
-            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
-            <title>{fileName}</title>
-            <style>
-                {fontCss}
-                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-                html, body {{
-                    width: 100%;
-                    height: 100%;
-                    overflow: auto;
-                    background: #E8E8E8;
-                    -webkit-font-smoothing: antialiased;
-                    -moz-osx-font-smoothing: grayscale;
-                }}
-                body {{
-                    display: flex;
-                    justify-content: center;
-                    align-items: flex-start;
-                    min-height: 100vh;
-                    padding: 10px;
-                }}
-                .page-container {{
-                    position: relative;
-                    width: 1024px;
-                    height: 1344px;
-                    flex-shrink: 0;
-                    background: #ffffff;
-                    box-shadow: 0 0 20px rgba(0,0,0,0.15);
-                    overflow: hidden;
-                    border-radius: 2px;
-                    transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
-                    transform-origin: top center;
-                }}
-                .background-img {{
-                    position: absolute;
-                    top: 0; left: 0;
-                    width: 100%; height: 100%;
-                    object-fit: contain;
-                    pointer-events: none;
-                    z-index: 1;
-                }}
-                .content-overlay {{
-                    position: absolute;
-                    top: 0; left: 0;
-                    width: 100%; height: 100%;
-                    z-index: 2;
-                }}
-                .content-overlay > * {{ position: absolute !important; }}
-                .base-content {{
-                    position: absolute;
-                    top: 0; left: 0;
-                    width: 100%; height: 100%;
-                    z-index: 5;
-                    pointer-events: none;
-                }}
-                .base-content > * {{ position: absolute !important; }}
+        // Insert just before the last </div> in the content HTML.
+        // The last </div> closes .content-overlay (the outermost container
+        // in BuildBaseContentHtml / BuildOverlayHtml).
+        int idx = contentHtml.LastIndexOf("</div>", StringComparison.OrdinalIgnoreCase);
+        if (idx > 0)
+            return contentHtml.Substring(0, idx) + overlayHtml + contentHtml.Substring(idx);
 
-                .base-content .para {{
-                    position: absolute !important;
-                    line-height: 1 !important;
-                    white-space: pre;
-                    font-kerning: none;
-                    font-feature-settings: 'kern' 0, 'liga' 0;
-                    text-rendering: geometricPrecision;
-                    -webkit-font-smoothing: antialiased;
-                    -webkit-text-size-adjust: 100%;
-                }}
-                .base-content span,
-                .base-content div[class*='char'],
-                .base-content div[class*='word'] {{
-                    position: absolute !important;
-                    line-height: 1 !important;
-                }}
-
-                .highlight-overlay {{
-                    position: absolute;
-                    top: 0; left: 0;
-                    width: 100%; height: 100%;
-                    z-index: 10;
-                    pointer-events: none;
-                    overflow: visible;
-                }}
-                .highlight-overlay > *,
-                .highlight-overlay > * > * {{
-                    position: absolute !important;
-                }}
-                .{highlightClass} {{
-                    background: rgba(255, 255, 0, 0.25);
-                    border: 3px solid {borderColor};
-                    border-radius: 4px;
-                    padding: 3px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class='page-container'>
-                <img class='background-img' src='{bgImage}' alt='' />
-                <div class='content-overlay'>
-                    <div class='base-content'>{baseContent}</div>
-                    <div class='highlight-overlay'>{redContent}</div>
-                </div>
-            </div>
-        </body>
-        </html>";
-    }
-
-    private string BuildBaseContentHtml(string bgImage, string baseContent, string fileName, string fontCss)
-    {
-        double zoom = _bookService.CurrentZoom;
-
-        if (string.IsNullOrEmpty(bgImage))
-            bgImage = GetPlaceholderImage();
-
-        return $@"
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset='UTF-8'>
-            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
-            <title>{fileName}</title>
-            <style>
-                {fontCss}
-                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-                html, body {{
-                    width: 100%;
-                    height: 100%;
-                    overflow: auto;
-                    background: #E8E8E8;
-                    -webkit-font-smoothing: antialiased;
-                    -moz-osx-font-smoothing: grayscale;
-                }}
-                body {{
-                    display: flex;
-                    justify-content: center;
-                    align-items: flex-start;
-                    min-height: 100vh;
-                    padding: 10px;
-                }}
-                .page-container {{
-                    position: relative;
-                    width: 1024px;
-                    height: 1344px;
-                    flex-shrink: 0;
-                    background: #ffffff;
-                    box-shadow: 0 0 20px rgba(0,0,0,0.15);
-                    overflow: hidden;
-                    border-radius: 2px;
-                    transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
-                    transform-origin: top center;
-                }}
-                .background-img {{
-                    position: absolute;
-                    top: 0; left: 0;
-                    width: 100%; height: 100%;
-                    object-fit: contain;
-                    pointer-events: none;
-                    z-index: 1;
-                }}
-                .content-overlay {{
-                    position: absolute;
-                    top: 0; left: 0;
-                    width: 100%; height: 100%;
-                    z-index: 2;
-                }}
-                .content-overlay > * {{ position: absolute !important; }}
-                .base-content {{
-                    position: absolute;
-                    top: 0; left: 0;
-                    width: 100%; height: 100%;
-                    z-index: 5;
-                    pointer-events: none;
-                }}
-                .base-content > * {{ position: absolute !important; }}
-
-                .base-content .para {{
-                    position: absolute !important;
-                    line-height: 1 !important;
-                    white-space: pre;
-                    font-kerning: none;
-                    font-feature-settings: 'kern' 0, 'liga' 0;
-                    text-rendering: geometricPrecision;
-                    -webkit-font-smoothing: antialiased;
-                    -webkit-text-size-adjust: 100%;
-                }}
-                .base-content span,
-                .base-content div[class*='char'],
-                .base-content div[class*='word'] {{
-                    position: absolute !important;
-                    line-height: 1 !important;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class='page-container'>
-                <img class='background-img' src='{bgImage}' alt='' />
-                <div class='content-overlay'>
-                    <div class='base-content'>{baseContent}</div>
-                </div>
-            </div>
-        </body>
-        </html>";
+        // Fallback: append at the very end
+        return contentHtml + overlayHtml;
     }
 
     private string GetPlaceholderImage()
@@ -588,7 +291,7 @@ public partial class BookViewerPage : ContentPage
             }
             else
             {
-                NextPageWebView.Source = new HtmlWebViewSource { Html = "<html><body style='background:#E8E8E8;'></body></html>" };
+                NextPageWebView.Source = new HtmlWebViewSource { Html = $"<html><body style='background:{SurroundColor};'></body></html>" };
             }
             NextPageWebView.IsVisible = true;
 
@@ -600,40 +303,25 @@ public partial class BookViewerPage : ContentPage
             RightColumn.Width = new GridLength(0);
             NextPageWebView.IsVisible = false;
 
-            string html = _currentViewMode switch
+            // Build the display HTML by layering onto the known-good content HTML
+            string html;
+            if (_currentViewMode == "teacher" && !string.IsNullOrEmpty(_currentTeacherFragment))
             {
-                "content" => _currentContentHtml,
-                "teacher" => _currentTeacherHtml,
-                "student" => _currentStudentHtml,
-                _ => _currentContentHtml
-            };
-
-            if (!string.IsNullOrEmpty(html))
+                html = InjectAnswerOverlay(_currentContentHtml, _currentTeacherFragment, "teacherNotes");
+            }
+            else if (_currentViewMode == "student" && !string.IsNullOrEmpty(_currentStudentFragment))
             {
-                ContentWebView.Source = new HtmlWebViewSource { Html = html };
+                html = InjectAnswerOverlay(_currentContentHtml, _currentStudentFragment, "studentAnswers");
             }
             else
             {
-                ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
+                html = _currentContentHtml;
             }
 
-            if (_showTeacherNotes && !string.IsNullOrEmpty(_currentTeacherHtml))
-            {
-                TeacherWebView.IsVisible = true;
-                StudentWebView.IsVisible = false;
-                TeacherWebView.Source = new HtmlWebViewSource { Html = _currentTeacherHtml };
-            }
-            else if (_showStudentAnswers && !string.IsNullOrEmpty(_currentStudentHtml))
-            {
-                TeacherWebView.IsVisible = false;
-                StudentWebView.IsVisible = true;
-                StudentWebView.Source = new HtmlWebViewSource { Html = _currentStudentHtml };
-            }
-            else
-            {
-                TeacherWebView.IsVisible = false;
-                StudentWebView.IsVisible = false;
-            }
+            ContentWebView.Source = new HtmlWebViewSource { Html = html };
+            ContentWebView.IsVisible = true;
+            TeacherWebView.IsVisible = false;
+            StudentWebView.IsVisible = false;
 
             UpdateViewModeButton();
         }
@@ -654,8 +342,8 @@ public partial class BookViewerPage : ContentPage
     {
         _currentViewMode = _currentViewMode switch
         {
-            "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
-            "teacher" when (!string.IsNullOrEmpty(_currentStudentHtml)) => "student",
+            "content" when (!string.IsNullOrEmpty(_currentTeacherFragment)) => "teacher",
+            "teacher" when (!string.IsNullOrEmpty(_currentStudentFragment)) => "student",
             "student" => "content",
             "content" => "content",
             _ => "content"
@@ -669,7 +357,7 @@ public partial class BookViewerPage : ContentPage
 
     private void OnTeacherNotesClicked(object sender, EventArgs e)
     {
-        if (!string.IsNullOrEmpty(_currentTeacherHtml))
+        if (!string.IsNullOrEmpty(_currentTeacherFragment))
         {
             _currentViewMode = _currentViewMode == "teacher" ? "content" : "teacher";
             UpdateDisplay();
@@ -685,7 +373,7 @@ public partial class BookViewerPage : ContentPage
 
     private void OnStudentAnswersClicked(object sender, EventArgs e)
     {
-        if (!string.IsNullOrEmpty(_currentStudentHtml))
+        if (!string.IsNullOrEmpty(_currentStudentFragment))
         {
             _currentViewMode = _currentViewMode == "student" ? "content" : "student";
             UpdateDisplay();
