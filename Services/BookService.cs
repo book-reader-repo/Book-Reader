@@ -612,8 +612,6 @@ namespace BookViewer
                     string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
                     string fontCss = await GetFontCssWithEmbeddedFonts(directory);
 
-                    // Detect page dimensions from the source steps_N.html.
-                    // Source: <div id="rez" style="top:0px;width:1024px;height:1309px;...">
                     int pageWidth = 1024;
                     int pageHeight = 1309;
 
@@ -1188,8 +1186,6 @@ body, .para, .base-content, .content-overlay {
             left: 0;
             width: 100%;
             height: 100%;
-            /* No object-fit — the img stretches to fill the container, matching
-               source steps.css: img.bgcls { width:100%; height:100% } */
             pointer-events: none;
             z-index: 1;
         }}
@@ -1262,8 +1258,8 @@ body, .para, .base-content, .content-overlay {
             var rawHtml = await File.ReadAllTextAsync(filePath);
             await ProcessHtmlContent(rawHtml, filePath);
 
-            int pageWidth = CurrentPageWidth;
-            int pageHeight = CurrentPageHeight;
+            int renderWidth = CurrentPageWidth;
+            int renderHeight = CurrentPageHeight;
 
             string bgImage = GetStepBackgroundImage(filePath);
             string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
@@ -1304,8 +1300,8 @@ body, .para, .base-content, .content-overlay {
 <style>
     {fontCss}
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ width: {pageWidth}px; height: {pageHeight}px; overflow: hidden; background: #ffffff; }}
-    .page-container {{ position: relative; width: {pageWidth}px; height: {pageHeight}px; background: #ffffff; overflow: hidden; }}
+    html, body {{ width: {renderWidth}px; height: {renderHeight}px; overflow: hidden; background: #ffffff; }}
+    .page-container {{ position: relative; width: {renderWidth}px; height: {renderHeight}px; background: #ffffff; overflow: hidden; }}
     .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }}
     .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
     .content-overlay > * {{ position: absolute !important; top: 0; left: 0; }}
