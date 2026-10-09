@@ -658,8 +658,8 @@ namespace BookViewer
         }
 
         /// <summary>
-        /// Rebuilds HTML from _para.xml, preserving x/y/width/height/textalign so each
-        /// Chinese line lands on its intended coordinate.
+        /// Rebuilds HTML from _para.xml, preserving x/y/width/height/textalign.
+        /// Paragraphs without coordinates render as flowing so they don't pile at 0,0.
         /// </summary>
         private string ExtractContentFromParaXml(string paraXmlContent)
         {
@@ -688,18 +688,27 @@ namespace BookViewer
                     var h     = child.Attributes?["height"]?.Value;
                     var align = child.Attributes?["textalign"]?.Value;
 
+                    bool hasCoords = !string.IsNullOrEmpty(x) && !string.IsNullOrEmpty(y);
+
                     var pos = new StringBuilder();
                     if (!string.IsNullOrEmpty(style)) pos.Append(style).Append(';');
 
-                    if (!string.IsNullOrEmpty(x)) pos.Append("left:").Append(x).Append("px;");
-                    if (!string.IsNullOrEmpty(y)) pos.Append("top:").Append(y).Append("px;");
+                    if (hasCoords)
+                    {
+                        pos.Append("position:absolute;");
+                        pos.Append("left:").Append(x).Append("px;");
+                        pos.Append("top:").Append(y).Append("px;");
+                    }
+
                     if (!string.IsNullOrEmpty(w)) pos.Append("width:").Append(w).Append("px;");
                     if (!string.IsNullOrEmpty(h)) pos.Append("height:").Append(h).Append("px;");
                     if (!string.IsNullOrEmpty(align)) pos.Append("text-align:").Append(align).Append(';');
 
                     if (string.IsNullOrEmpty(align)) pos.Append("text-align:left;");
 
-                    sb.Append("<div class='para' style=\"")
+                    var cls = hasCoords ? "para para-abs" : "para para-flow";
+
+                    sb.Append("<div class='").Append(cls).Append("' style=\"")
                       .Append(pos.ToString())
                       .Append("\">")
                       .Append(text)
@@ -811,8 +820,11 @@ namespace BookViewer
 
         /// <summary>
         /// Loads font.css, embeds every referenced font as base64, and appends
-        /// a CJK fallback stack with locked metrics so Chinese characters land
-        /// on the same y-coordinate regardless of which font renders them.
+        /// a CJK fallback stack with locked metrics.
+        ///
+        /// IMPORTANT: line-height is NOT overridden here. The source font.css
+        /// declares line-height per class (e.g. 1.5em). Forcing our own value
+        /// causes vertical drift because different books use different line-heights.
         /// </summary>
         public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
         {
@@ -932,11 +944,6 @@ namespace BookViewer
 
                     Log($"Font embedding summary: {embeddedCount} of {totalFaces} @font-face rules embedded");
 
-                    // ---- CJK metric lock ----
-                    // Every Chinese font has a different ascent/descent ratio.
-                    // Without this block, the same 'top: Npx' renders N + Δ pixels
-                    // down, where Δ varies per font (often 20–40% of font-size).
-                    // These overrides normalise all CJK fonts to the same em-box.
                     fontCss += @"
 
 /* ==== CJK metric lock ==== */
@@ -946,8 +953,8 @@ namespace BookViewer
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC'),
          local('Noto Serif CJK TC'), local('Noto Serif CJK SC');
-    ascent-override: 88%;
-    descent-override: 12%;
+    ascent-override: 116%;
+    descent-override: 24%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -968,8 +975,8 @@ body, .para, .base-content, .content-overlay {
     src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC');
-    ascent-override: 88%;
-    descent-override: 12%;
+    ascent-override: 116%;
+    descent-override: 24%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -1033,8 +1040,8 @@ body, .para, .base-content, .content-overlay {
     src: url('{dataUri}') format('{format}');
     font-weight: normal;
     font-style: normal;
-    ascent-override: 88%;
-    descent-override: 12%;
+    ascent-override: 116%;
+    descent-override: 24%;
     line-gap-override: 0%;
 }}";
                     }
@@ -1164,14 +1171,11 @@ body, .para, .base-content, .content-overlay {
             z-index: 2;
         }}
 
-        .content-overlay > * {{
-            position: absolute !important;
-        }}
+        .content-overlay > * {{ position: relative; }}
+        .content-overlay > .para-abs {{ position: absolute !important; }}
 
-        /* ==== CJK paragraph alignment ==== */
+        /* line-height intentionally NOT set — the source font.css controls it */
         .content-overlay .para {{
-            position: absolute !important;
-            line-height: 1 !important;
             white-space: pre;
             font-kerning: none;
             font-feature-settings: 'kern' 0, 'liga' 0;
@@ -1248,18 +1252,21 @@ body, .para, .base-content, .content-overlay {
     .page-container {{ position: relative; width: 1024px; height: 1344px; background: #ffffff; overflow: hidden; }}
     .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }}
     .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
-    .content-overlay > * {{ position: absolute !important; top: 0; left: 0; }}
+    .content-overlay > * {{ position: relative; top: 0; left: 0; }}
+    .content-overlay > .para-abs {{ position: absolute !important; }}
     .base-content {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }}
-    .base-content > * {{ position: absolute !important; }}
+    .base-content > * {{ position: relative; }}
+    .base-content > .para-abs {{ position: absolute !important; }}
+
+    /* line-height intentionally NOT overridden */
     .base-content .para {{
-        position: absolute !important;
-        line-height: 1 !important;
         white-space: pre;
         font-kerning: none;
         font-feature-settings: 'kern' 0, 'liga' 0;
         text-rendering: geometricPrecision;
         -webkit-font-smoothing: antialiased;
     }}
+
     .highlight-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; overflow: visible; }}
     .highlight-overlay > *, .highlight-overlay > * > * {{ position: absolute !important; }}
     .teacher-overlay .tbnote, .highlight-overlay .tbnote {{ background: rgba(255,255,0,0.25); border: 3px solid #3498db; border-radius: 4px; padding: 3px; }}
