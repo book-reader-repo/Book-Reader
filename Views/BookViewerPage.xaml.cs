@@ -1,1314 +1,930 @@
+using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
+using Color = Microsoft.Maui.Graphics.Color;
 
-namespace BookViewer
+namespace BookViewer.Views;
+
+public partial class BookViewerPage : ContentPage
 {
-    public class BookService
+    private readonly BookService _bookService = new();
+    private bool _showTeacherNotes = false;
+    private bool _showStudentAnswers = false;
+    private string _currentContentHtml = "";
+    private string _currentTeacherHtml = "";
+    private string _currentStudentHtml = "";
+    private string _currentViewMode = "content";
+    private bool _bookLoaded = false;
+    private int _startFolio = 1;
+    private string _targetSectionId = "";
+
+    private static readonly object _logLock = new object();
+    private static string _logFilePath = "";
+
+    private string GetLogFilePath()
     {
-        private string _currentBookPath = "";
-        private string _currentBookUid = "";
-        private List<string> _pageFiles = new();
-        private int _currentPageIndex = -1;
-        private readonly DecryptionService _decryptionService = new();
-        private string _bookTitle = "Unknown Book";
-        private string _currentPageHtml = "";
-        private readonly Dictionary<string, string> _imageCache = new();
-        private readonly Dictionary<string, string> _fontCache = new();
-        private bool _sideBySideMode = false;
-        private bool _twoPageSpread = false;
-        private string _nextPageHtml = "";
-        private double _currentZoom = 1.0;
-        private string _tempFolder = "";
-
-        private bool _showTeacherNotes = false;
-        private bool _showStudentAnswers = false;
-
-        private readonly Dictionary<string, int> _stepFileToIndex = new();
-        private readonly Dictionary<int, string> _folioToStepFile = new();
-        private readonly Dictionary<string, Dictionary<int, string>> _sectionFolioMap = new();
-        private readonly Dictionary<string, int> _sectionFirstIndex = new();
-
-        private static readonly object _logLock = new object();
-        private static string _logFilePath = "";
-
-        private string GetLogFilePath()
+        if (string.IsNullOrEmpty(_logFilePath))
         {
-            if (string.IsNullOrEmpty(_logFilePath))
+            string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string logFolder = Path.Combine(documentsPath, "BookViewer");
+            if (!Directory.Exists(logFolder))
             {
-                try
-                {
-                    string logFolder = Path.Combine(FileSystem.AppDataDirectory, "Logs");
-                    Directory.CreateDirectory(logFolder);
-                    _logFilePath = Path.Combine(logFolder, $"BookService_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-                }
-                catch
-                {
-                    _logFilePath = Path.Combine(Path.GetTempPath(), $"BookService_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-                }
+                Directory.CreateDirectory(logFolder);
             }
-            return _logFilePath;
+            _logFilePath = Path.Combine(logFolder, $"BookViewerPage_{DateTime.Now:yyyyMMdd_HHmmss}.log");
         }
+        return _logFilePath;
+    }
 
-        public string GetLogPath() => GetLogFilePath();
-
-        private void Log(string message)
+    private void Log(string message)
+    {
+        try
         {
-            try
+            string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
+            string logFile = GetLogFilePath();
+
+            lock (_logLock)
             {
-                string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
-                string logFile = GetLogFilePath();
-
-                lock (_logLock)
-                {
-                    File.AppendAllText(logFile, logMessage + Environment.NewLine);
-                }
-
-                System.Diagnostics.Debug.WriteLine(logMessage);
-
-                if (message.Length < 80)
-                    OnStatusChanged?.Invoke(this, message);
-                else
-                    OnStatusChanged?.Invoke(this, message.Substring(0, 77) + "...");
-            }
-            catch
-            {
-            }
-        }
-
-        public event EventHandler<List<string>> OnPagesLoaded;
-        public event EventHandler<string> OnPageChanged;
-        public event EventHandler<string> OnStatusChanged;
-        public event EventHandler<string> OnBookLoaded;
-        public event EventHandler<bool> OnToggleAnswersRequested;
-        public event EventHandler<bool> OnSideBySideToggled;
-        public event EventHandler<bool> OnTwoPageSpreadToggled;
-        public event EventHandler<double> OnZoomChanged;
-
-        public List<string> PageFiles => _pageFiles;
-        public int CurrentPageIndex => _currentPageIndex;
-        public string CurrentBookPath => _currentBookPath;
-        public string BookTitle => _bookTitle;
-        public string CurrentPageHtml => _currentPageHtml;
-        public bool SideBySideMode => _sideBySideMode;
-        public bool TwoPageSpread => _twoPageSpread;
-        public string NextPageHtml => _nextPageHtml;
-        public double CurrentZoom => _currentZoom;
-
-        public bool ShowTeacherNotes => _showTeacherNotes;
-        public bool ShowStudentAnswers => _showStudentAnswers;
-
-        public Dictionary<int, string> FolioToStepFile => _folioToStepFile;
-        public Dictionary<string, int> StepFileToIndex => _stepFileToIndex;
-
-        public void SetShowTeacherNotes(bool show)
-        {
-            _showTeacherNotes = show;
-            if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
-                _ = LoadPageAsync(_currentPageIndex);
-        }
-
-        public void SetShowStudentAnswers(bool show)
-        {
-            _showStudentAnswers = show;
-            if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
-                _ = LoadPageAsync(_currentPageIndex);
-        }
-
-        public bool IsFileEncrypted(string content) => _decryptionService.IsEncrypted(content);
-        public string DecryptFile(string content, string fileName) => _decryptionService.DecryptWithFileName(content, fileName);
-
-        public void SetZoom(double zoom)
-        {
-            _currentZoom = Math.Max(0.5, Math.Min(3.0, zoom));
-            OnZoomChanged?.Invoke(this, _currentZoom);
-            if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
-                _ = LoadPageAsync(_currentPageIndex);
-        }
-
-        public void ZoomIn() => SetZoom(_currentZoom + 0.1);
-        public void ZoomOut() => SetZoom(_currentZoom - 0.1);
-        public void ResetZoom() => SetZoom(1.0);
-
-        public void ToggleSideBySide()
-        {
-            _sideBySideMode = !_sideBySideMode;
-            OnSideBySideToggled?.Invoke(this, _sideBySideMode);
-            if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
-                _ = LoadPageAsync(_currentPageIndex);
-        }
-
-        public void ToggleTwoPageSpread()
-        {
-            _twoPageSpread = !_twoPageSpread;
-            _sideBySideMode = _twoPageSpread;
-            OnTwoPageSpreadToggled?.Invoke(this, _twoPageSpread);
-            if (_currentPageIndex >= 0 && _currentPageIndex < _pageFiles.Count)
-                _ = LoadPageAsync(_currentPageIndex);
-        }
-
-        public int GetIndexForStepFile(string stepFile)
-        {
-            if (string.IsNullOrEmpty(stepFile)) return -1;
-            var name = Path.GetFileNameWithoutExtension(stepFile);
-            if (_stepFileToIndex.TryGetValue(name, out int idx))
-                return idx;
-            return -1;
-        }
-
-        public int GetIndexForFolio(int folio)
-        {
-            if (_folioToStepFile.TryGetValue(folio, out var stepFile))
-                return GetIndexForStepFile(stepFile);
-            return -1;
-        }
-
-        public int GetIndexForSectionFolio(string sectionId, int folio)
-        {
-            if (string.IsNullOrEmpty(sectionId)) return -1;
-
-            if (_sectionFolioMap.TryGetValue(sectionId, out var folioMap))
-            {
-                if (folioMap.TryGetValue(folio, out var stepFile))
-                {
-                    var composite = sectionId + "/" + stepFile;
-                    if (_stepFileToIndex.TryGetValue(composite, out int idx))
-                        return idx;
-
-                    if (_stepFileToIndex.TryGetValue(stepFile, out int idx2))
-                        return idx2;
-                }
+                File.AppendAllText(logFile, logMessage + Environment.NewLine);
             }
 
-            return -1;
-        }
+            System.Diagnostics.Debug.WriteLine(logMessage);
 
-        public int GetFirstIndexOfSection(string sectionId)
-        {
-            if (string.IsNullOrEmpty(sectionId)) return -1;
-            if (_sectionFirstIndex.TryGetValue(sectionId, out int idx))
-                return idx;
-            return -1;
-        }
-
-        public async Task<bool> LoadBookAsync(string folderPath)
-        {
-            try
+            if (message.Length < 80)
             {
-                Log($"=== LOADING BOOK from: {folderPath} ===");
-                Log($"BookService log file: {GetLogFilePath()}");
-                _currentBookPath = folderPath;
+                Dispatcher.Dispatch(() => StatusLabel.Text = message);
+            }
+            else
+            {
+                Dispatcher.Dispatch(() => StatusLabel.Text = message.Substring(0, 77) + "...");
+            }
+        }
+        catch
+        {
+        }
+    }
 
-                _tempFolder = Path.Combine(FileSystem.CacheDirectory, "BookViewer", $"temp_{Guid.NewGuid().ToString().Substring(0, 8)}");
-                Directory.CreateDirectory(_tempFolder);
-                Log($"Temp folder: {_tempFolder}");
+    public BookViewerPage(string bookFolder, int startFolio)
+    {
+        InitializeComponent();
+        NavigationPage.SetHasNavigationBar(this, false);
 
-                var bookXmlPath = Path.Combine(folderPath, "book.xml");
+        _startFolio = startFolio;
 
-                if (!File.Exists(bookXmlPath))
+        Log("=== BOOK VIEWER PAGE INITIALIZED ===");
+        Log($"Book folder: {bookFolder}");
+        Log($"Start folio: {_startFolio}");
+        Log($"Log file: {GetLogFilePath()}");
+
+        _bookService.OnPagesLoaded += (s, pages) =>
+        {
+            Dispatcher.Dispatch(() => UpdateUI());
+        };
+
+        _bookService.OnPageChanged += (s, content) =>
+        {
+            Dispatcher.Dispatch(() =>
+            {
+                _currentContentHtml = content;
+                LoadTeacherView();
+                LoadStudentView();
+                UpdateDisplay();
+                UpdateUI();
+            });
+        };
+
+        _bookService.OnStatusChanged += (s, msg) =>
+            Dispatcher.Dispatch(() => StatusLabel.Text = msg);
+
+        _bookService.OnBookLoaded += (s, title) =>
+            Dispatcher.Dispatch(() => BookTitleLabel.Text = title);
+
+        _bookService.OnTwoPageSpreadToggled += (s, enabled) =>
+        {
+            Dispatcher.Dispatch(() =>
+            {
+                bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+
+                SideBySideButton.Text = enabled ? "▮▮ 2 Pages" : "▯ 1 Page";
+                SideBySideButton.BackgroundColor = enabled
+                    ? Color.FromArgb("#0A84FF")
+                    : (dark ? Color.FromArgb("#2C2C2E") : Color.FromArgb("#F7F7F9"));
+                SideBySideButton.TextColor = enabled
+                    ? Colors.White
+                    : (dark ? Colors.White : Colors.Black);
+
+                StatusLabel.Text = enabled ? "Two-page spread" : "Single page";
+                UpdateDisplay();
+            });
+        };
+
+        _bookService.OnSideBySideToggled += (s, enabled) =>
+        {
+            Dispatcher.Dispatch(() => UpdateDisplay());
+        };
+
+        _bookService.OnZoomChanged += (s, zoom) =>
+            Dispatcher.Dispatch(() => ZoomLabel.Text = $"{zoom:F1}x");
+
+        Loaded += async (s, e) =>
+        {
+            if (_bookLoaded) return;
+            _bookLoaded = true;
+
+            Log("Loaded event fired → calling LoadBookAsync");
+            var success = await _bookService.LoadBookAsync(bookFolder);
+            if (success)
+            {
+                TeacherNotesButton.IsEnabled = true;
+                StudentAnswersButton.IsEnabled = true;
+                DecryptButton.IsEnabled = true;
+                SideBySideButton.IsEnabled = true;
+                ViewModeButton.IsEnabled = true;
+                ExportPdfButton.IsEnabled = true;
+                GridButton.IsEnabled = true;
+
+                _currentViewMode = "content";
+                _showTeacherNotes = false;
+                _showStudentAnswers = false;
+                UpdateViewModeButton();
+                UpdateTeacherButton();
+                UpdateStudentButton();
+
+                if (!string.IsNullOrEmpty(_targetSectionId))
                 {
-                    Log($"ERROR: book.xml not found at: {bookXmlPath}");
-                    OnStatusChanged?.Invoke(this, "book.xml not found");
-                    return false;
-                }
+                    int idx = _bookService.GetFirstIndexOfSection(_targetSectionId);
+                    Log($"Section {_targetSectionId} → first index {idx}");
 
-                var folderName = Path.GetFileName(folderPath);
-                var bookIdMatch = Regex.Match(folderName, @"book_(\d+)");
-                if (bookIdMatch.Success)
-                {
-                    _currentBookUid = bookIdMatch.Groups[1].Value;
-                    Log($"Extracted book ID from folder: {_currentBookUid}");
-                }
-
-                var content = await File.ReadAllTextAsync(bookXmlPath);
-                Log($"book.xml loaded, size: {content.Length} bytes");
-                Log($"book.xml IsEncrypted check: {_decryptionService.IsEncrypted(content)}");
-
-                if (string.IsNullOrEmpty(_currentBookUid))
-                {
-                    var uidMatch = Regex.Match(content, @"id=""([^""]+)""");
-                    if (uidMatch.Success)
+                    if (idx < 0 && _startFolio > 0)
                     {
-                        _currentBookUid = uidMatch.Groups[1].Value;
-                        Log($"Extracted Book UID from book.xml: {_currentBookUid}");
-                    }
-                }
-
-                bool bookXmlDecrypted = false;
-                if (_decryptionService.IsEncrypted(content))
-                {
-                    Log("book.xml IS encrypted → decrypting book.xml");
-                    if (string.IsNullOrEmpty(_currentBookUid))
-                    {
-                        Log("ERROR: Could not find book UID for decryption");
-                        OnStatusChanged?.Invoke(this, "Could not decrypt book.xml - UID not found");
-                        return false;
+                        idx = _bookService.GetIndexForSectionFolio(_targetSectionId, _startFolio);
+                        Log($"Fallback folio {_startFolio} → index {idx}");
                     }
 
-                    content = _decryptionService.DecryptBookFile(content, _currentBookUid);
-                    Log($"book.xml decrypted, size: {content.Length} bytes");
-                    await File.WriteAllTextAsync(bookXmlPath, content);
-                    bookXmlDecrypted = true;
-                }
-                else
-                {
-                    Log("book.xml is NOT encrypted → skipping book.xml decryption");
-                }
-
-                _bookTitle = "Unknown Book";
-                var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
-                if (titleMatch.Success) _bookTitle = titleMatch.Groups[1].Value;
-                Log($"Book title: {_bookTitle}");
-                Log($"Book UID: {_currentBookUid}");
-
-                OnBookLoaded?.Invoke(this, _bookTitle);
-
-                if (bookXmlDecrypted)
-                {
-                    Log("book.xml was decrypted → running DecryptBookFilesAsync");
-                    await DecryptBookFilesAsync(folderPath);
-                }
-
-                _pageFiles.Clear();
-
-                var stepsFiles = Directory.GetFiles(folderPath, "steps_*.html", SearchOption.AllDirectories)
-                    .Concat(Directory.GetFiles(folderPath, "step_*.html", SearchOption.AllDirectories))
-                    .Where(f => IsPureStepsFile(Path.GetFileName(f)))
-                    .Distinct()
-                    .ToList();
-
-                Log($"Found {stepsFiles.Count} step files");
-
-                _pageFiles = stepsFiles
-                    .GroupBy(f => Path.GetDirectoryName(f) ?? "")
-                    .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
-                    .SelectMany(g =>
-                        g.Select(f => new { Path = f, Index = ParseStepIndex(Path.GetFileName(f)) })
-                         .OrderBy(x => x.Index >= 0 ? x.Index : int.MaxValue)
-                         .ThenBy(x => x.Path)
-                         .Select(x => x.Path)
-                    )
-                    .ToList();
-
-                Log($"Sorted {_pageFiles.Count} page files");
-
-                _stepFileToIndex.Clear();
-                _folioToStepFile.Clear();
-                _sectionFolioMap.Clear();
-                _sectionFirstIndex.Clear();
-
-                for (int i = 0; i < _pageFiles.Count; i++)
-                {
-                    var name = Path.GetFileNameWithoutExtension(_pageFiles[i]);
-                    var parentDir = Path.GetFileName(Path.GetDirectoryName(_pageFiles[i]) ?? "");
-                    var composite = parentDir + "/" + name;
-
-                    if (!_stepFileToIndex.ContainsKey(composite))
-                        _stepFileToIndex[composite] = i;
-
-                    if (!_stepFileToIndex.ContainsKey(name))
-                        _stepFileToIndex[name] = i;
-                }
-
-                try
-                {
-                    var bookDoc = new XmlDocument();
-                    var xmlText = await File.ReadAllTextAsync(bookXmlPath);
-
-                    var trimmedXml = xmlText.TrimStart();
-                    if (!trimmedXml.StartsWith("<book") && !trimmedXml.StartsWith("<?xml") && !trimmedXml.StartsWith("<root"))
-                        xmlText = $"<root>{xmlText}</root>";
-
-                    bookDoc.LoadXml(xmlText);
-
-                    var sectionNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail");
-                    if (sectionNodes != null)
+                    if (idx < 0 && _startFolio > 0)
                     {
-                        foreach (XmlNode sectionNode in sectionNodes)
-                        {
-                            var sectionId = sectionNode.Attributes?["id"]?.Value ?? "";
-                            if (string.IsNullOrEmpty(sectionId)) continue;
-
-                            var firstPageNode = sectionNode.SelectSingleNode(".//sectionorders/page");
-                            if (firstPageNode != null)
-                            {
-                                var seqIndexStr = firstPageNode.Attributes?["seqindex"]?.Value ?? "";
-                                if (int.TryParse(seqIndexStr, out int seqIndex))
-                                    _sectionFirstIndex[sectionId] = seqIndex;
-                            }
-
-                            var pageNodes = sectionNode.SelectNodes(".//sectionorders/page");
-                            if (pageNodes != null)
-                            {
-                                foreach (XmlNode p in pageNodes)
-                                {
-                                    var folioStr = p.Attributes?["folio"]?.Value ?? "";
-                                    var file = p.Attributes?["file"]?.Value ?? "";
-                                    if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
-                                    {
-                                        if (!_folioToStepFile.ContainsKey(folio))
-                                            _folioToStepFile[folio] = file;
-                                    }
-                                }
-                            }
-                        }
+                        idx = _startFolio - 1;
+                        Log($"Last fallback: folio {_startFolio} → index {idx}");
                     }
 
-                    Log($"book.xml: {_sectionFirstIndex.Count} sections mapped, {_folioToStepFile.Count} folios");
-                }
-                catch (Exception ex)
-                {
-                    Log($"Error parsing book.xml: {ex.Message}");
-                }
-
-                var sectionFolders = Directory.GetDirectories(folderPath, "s_*");
-                foreach (var sectionDir in sectionFolders)
-                {
-                    var sectionId = Path.GetFileName(sectionDir);
-                    var pagesXmlPath = Path.Combine(sectionDir, "pages.xml");
-                    if (!File.Exists(pagesXmlPath)) continue;
-
-                    try
+                    if (idx >= 0 && idx < _bookService.PageFiles.Count)
                     {
-                        var pagesContent = await File.ReadAllTextAsync(pagesXmlPath);
-
-                        var trimmed = pagesContent.TrimStart();
-                        if (trimmed.StartsWith("<?xml"))
-                        {
-                            var idx = pagesContent.IndexOf("?>");
-                            if (idx >= 0)
-                                pagesContent = pagesContent.Substring(idx + 2);
-                            trimmed = pagesContent.TrimStart();
-                        }
-
-                        if (!trimmed.StartsWith("<pages"))
-                            pagesContent = $"<pages>{pagesContent}</pages>";
-
-                        var pagesDoc = new XmlDocument();
-                        pagesDoc.LoadXml(pagesContent);
-
-                        var folioMap = new Dictionary<int, string>();
-                        var pageNodes = pagesDoc.SelectNodes("//page");
-                        if (pageNodes != null)
-                        {
-                            foreach (XmlNode pageNode in pageNodes)
-                            {
-                                var folioStr = pageNode.Attributes?["folio"]?.Value ?? "";
-                                var file = pageNode.Attributes?["file"]?.Value ?? "";
-                                if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
-                                    folioMap[folio] = file;
-                            }
-                        }
-
-                        _sectionFolioMap[sectionId] = folioMap;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"Error parsing {pagesXmlPath}: {ex.Message}");
+                        await _bookService.LoadPageAsync(idx);
                     }
                 }
-
-                Log($"Built section folio map: {_sectionFolioMap.Count} sections");
-
-                OnPagesLoaded?.Invoke(this, _pageFiles);
-
-                if (_pageFiles.Count > 0)
+                else if (_startFolio > 0)
                 {
-                    _currentPageIndex = 0;
-                    Log($"Loading first page: {Path.GetFileName(_pageFiles[0])}");
-                    await LoadPageAsync(0);
+                    int idx = _bookService.GetIndexForFolio(_startFolio);
+                    if (idx < 0) idx = _startFolio - 1;
+                    if (idx >= 0 && idx < _bookService.PageFiles.Count)
+                    {
+                        await _bookService.LoadPageAsync(idx);
+                    }
                 }
-                else
-                {
-                    Log("No page files found!");
-                    OnStatusChanged?.Invoke(this, "No pages found in this book");
-                    return false;
-                }
-
-                OnStatusChanged?.Invoke(this, $"Loaded: {_bookTitle} ({_pageFiles.Count} pages)");
-                Log($"=== BOOK LOADED SUCCESSFULLY ===");
-                return true;
             }
-            catch (Exception ex)
+            else
             {
-                Log($"ERROR loading book: {ex.Message}");
-                Log($"Stack trace: {ex.StackTrace}");
-                OnStatusChanged?.Invoke(this, $"Error: {ex.Message}");
-                return false;
+                await DisplayAlert("Error", "Failed to load book", "OK");
+            }
+        };
+    }
+
+    public BookViewerPage(string bookFolder, string sectionId, int startFolio)
+        : this(bookFolder, startFolio)
+    {
+        _targetSectionId = sectionId;
+    }
+
+    private async void LoadTeacherView()
+    {
+        try
+        {
+            if (_bookService.CurrentPageIndex >= 0 && _bookService.CurrentPageIndex < _bookService.PageFiles.Count)
+            {
+                var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
+                var directory = Path.GetDirectoryName(filePath) ?? "";
+                var fileName = Path.GetFileName(filePath) ?? "";
+
+                string baseContent = await GetBaseContentAsync(filePath);
+                string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "teacherNotes");
+                string bgImage = _bookService.GetStepBackgroundImage(filePath);
+                string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
+
+                _currentTeacherHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "teacherNotes");
             }
         }
-
-        private async Task DecryptBookFilesAsync(string folderPath)
+        catch (Exception ex)
         {
-            try
+            Log($"Error loading teacher view: {ex.Message}");
+        }
+    }
+
+    private async void LoadStudentView()
+    {
+        try
+        {
+            if (_bookService.CurrentPageIndex >= 0 && _bookService.CurrentPageIndex < _bookService.PageFiles.Count)
             {
-                Log($"=== DECRYPT BOOK FILES START: {folderPath} ===");
+                var filePath = _bookService.PageFiles[_bookService.CurrentPageIndex];
+                var directory = Path.GetDirectoryName(filePath) ?? "";
+                var fileName = Path.GetFileName(filePath) ?? "";
 
-                var htmlFiles = Directory.GetFiles(folderPath, "*.html", SearchOption.AllDirectories).ToList();
-                var xmlFiles = Directory.GetFiles(folderPath, "*.xml", SearchOption.AllDirectories).ToList();
-                var htmFiles = Directory.GetFiles(folderPath, "*.htm", SearchOption.AllDirectories).ToList();
+                string baseContent = await GetBaseContentAsync(filePath);
+                string redContent = await _bookService.GetRedAnswerContentAsync(filePath, "studentAnswers");
+                string bgImage = _bookService.GetStepBackgroundImage(filePath);
+                string fontCss = await _bookService.GetFontCssWithEmbeddedFonts(directory);
 
-                int bookKey = _decryptionService.CalculateKey(_currentBookUid);
-
-                int decryptedCount = 0;
-                int alreadyDecryptedCount = 0;
-                int htmlDecryptedCount = 0;
-                int htmlSkippedCount = 0;
-
-                var allXmlAndHtmFiles = new List<string>();
-                allXmlAndHtmFiles.AddRange(xmlFiles);
-                allXmlAndHtmFiles.AddRange(htmFiles);
-
-                foreach (var file in allXmlAndHtmFiles)
-                {
-                    try
-                    {
-                        var fileName = Path.GetFileName(file);
-                        var fileContent = await File.ReadAllTextAsync(file);
-                        bool isEncrypted = _decryptionService.IsEncrypted(fileContent);
-
-                        if (!isEncrypted)
-                        {
-                            alreadyDecryptedCount++;
-                            continue;
-                        }
-
-                        string decryptedContent = _decryptionService.DecryptXmlOrHtm(fileContent, fileName);
-                        await File.WriteAllTextAsync(file, decryptedContent);
-                        decryptedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"Error decrypting {Path.GetFileName(file)}: {ex.Message}");
-                    }
-                }
-
-                foreach (var file in htmlFiles)
-                {
-                    try
-                    {
-                        var fileName = Path.GetFileName(file);
-                        var fileContent = await File.ReadAllTextAsync(file);
-
-                        bool isDecrypted = fileContent.Contains("<") && fileContent.Contains(">") &&
-                                           (fileContent.Contains("</") || fileContent.Contains("/>")) &&
-                                           (fileContent.Contains("class=") || fileContent.Contains("<div") || fileContent.Contains("id="));
-
-                        if (isDecrypted)
-                        {
-                            htmlSkippedCount++;
-                            continue;
-                        }
-
-                        string decryptedContent = _decryptionService.DecryptWithKey(fileContent, bookKey);
-                        await File.WriteAllTextAsync(file, decryptedContent);
-                        htmlDecryptedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"Error decrypting {Path.GetFileName(file)}: {ex.Message}");
-                    }
-                }
-
-                Log($"Decrypt summary: XML/HTM {decryptedCount} decrypted, {alreadyDecryptedCount} plain; HTML {htmlDecryptedCount} decrypted, {htmlSkippedCount} plain");
-            }
-            catch (Exception ex)
-            {
-                Log($"ERROR in DecryptBookFilesAsync: {ex.Message}");
+                _currentStudentHtml = BuildFullViewHtml(bgImage, baseContent, redContent, fileName, fontCss, "studentAnswers");
             }
         }
-
-        public async Task DecryptBookAsync()
+        catch (Exception ex)
         {
-            if (string.IsNullOrEmpty(_currentBookPath))
-            {
-                OnStatusChanged?.Invoke(this, "No book loaded");
-                return;
-            }
-
-            OnStatusChanged?.Invoke(this, "Decrypting book files...");
-            await DecryptBookFilesAsync(_currentBookPath);
-            OnStatusChanged?.Invoke(this, "Decryption complete! Reloading book...");
-            await LoadBookAsync(_currentBookPath);
+            Log($"Error loading student view: {ex.Message}");
         }
+    }
 
-        private bool IsPureStepsFile(string fileName)
-            => Regex.IsMatch(fileName ?? "", @"^steps?_\d+\.html$", RegexOptions.IgnoreCase);
-
-        private int ParseStepIndex(string fileName)
+    private async Task<string> GetBaseContentAsync(string filePath)
+    {
+        try
         {
-            try
-            {
-                var m = Regex.Match(fileName ?? "", @"^steps?_(\d+)\.html$", RegexOptions.IgnoreCase);
-                if (m.Success && int.TryParse(m.Groups[1].Value, out int idx))
-                    return idx;
-
-                m = Regex.Match(fileName ?? "", @"(\d+)");
-                if (m.Success && int.TryParse(m.Groups[1].Value, out int idx3))
-                    return idx3;
-            }
-            catch { }
-            return -1;
-        }
-
-        public async Task LoadPageAsync(int index)
-        {
-            if (index < 0 || index >= _pageFiles.Count) return;
-
-            try
-            {
-                _currentPageIndex = index;
-                var filePath = _pageFiles[index];
-                var fileName = Path.GetFileName(filePath);
-
-                var content = await File.ReadAllTextAsync(filePath);
-                var processedHtml = await ProcessHtmlContent(content, filePath);
-                _currentPageHtml = processedHtml;
-
-                if (_twoPageSpread && index + 1 < _pageFiles.Count)
-                {
-                    var nextFilePath = _pageFiles[index + 1];
-                    var nextContent = await File.ReadAllTextAsync(nextFilePath);
-                    _nextPageHtml = await ProcessHtmlContent(nextContent, nextFilePath);
-                }
-                else
-                {
-                    _nextPageHtml = "";
-                }
-
-                OnPageChanged?.Invoke(this, processedHtml);
-                OnStatusChanged?.Invoke(this, $"Viewing: {fileName} ({index + 1}/{_pageFiles.Count})");
-                OnPagesLoaded?.Invoke(this, _pageFiles);
-            }
-            catch (Exception ex)
-            {
-                Log($"ERROR loading page: {ex.Message}");
-                OnStatusChanged?.Invoke(this, $"Error loading page: {ex.Message}");
-            }
-        }
-
-        private async Task<string> ProcessHtmlContent(string htmlContent, string filePath)
-        {
-            try
-            {
-                string directory = Path.GetDirectoryName(filePath) ?? "";
-                string fileName = Path.GetFileName(filePath) ?? "";
-
-                if (IsPureStepsFile(fileName) && fileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
-                {
-                    string bgImage = GetStepBackgroundImage(filePath);
-                    string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
-                    string fontCss = await GetFontCssWithEmbeddedFonts(directory);
-
-                    return BuildOverlayHtml(bgImage, contentHtml, fileName, fontCss, "", "");
-                }
-
-                return htmlContent;
-            }
-            catch (Exception ex)
-            {
-                Log($"ERROR in ProcessHtmlContent: {ex.Message}");
-                return htmlContent;
-            }
-        }
-
-        private async Task<string> ExtractContentFromHtmlFile(string filePath, string fileName, string directory)
-        {
-            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-            string contentHtml = "";
+            var directory = Path.GetDirectoryName(filePath) ?? "";
+            var fileName = Path.GetFileName(filePath) ?? "";
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
 
             string oriHtmlPath = Path.Combine(directory, nameWithoutExt + "_ori.html");
             if (File.Exists(oriHtmlPath))
             {
                 string oriContent = await File.ReadAllTextAsync(oriHtmlPath);
-                return ExtractContentFromHtml(oriContent);
+                var bodyMatch = Regex.Match(oriContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
+                if (bodyMatch.Success)
+                    return bodyMatch.Groups[1].Value;
+                return oriContent;
             }
 
             string paraXmlPath = Path.Combine(directory, nameWithoutExt + "_para.xml");
             if (File.Exists(paraXmlPath))
             {
                 string paraContent = await File.ReadAllTextAsync(paraXmlPath);
-                return ExtractContentFromParaXml(paraContent);
+                return BuildContentFromParaXml(paraContent);
             }
 
-            try
-            {
-                string fallbackContent = await File.ReadAllTextAsync(filePath);
-                contentHtml = ExtractContentFromHtml(fallbackContent);
-            }
-            catch
-            {
-                contentHtml = "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
-            }
-
-            return contentHtml;
+            return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
         }
-
-        private string ExtractContentFromHtml(string htmlContent)
+        catch (Exception ex)
         {
-            var bodyMatch = Regex.Match(htmlContent, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
-            if (!bodyMatch.Success) return htmlContent;
-            return bodyMatch.Groups[1].Value;
+            Log($"Error getting base content: {ex.Message}");
+            return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
         }
+    }
 
-        /// <summary>
-        /// Rebuilds HTML from _para.xml, preserving x/y/width/height/textalign.
-        /// Paragraphs without coordinates render as flowing so they don't pile at 0,0.
-        /// </summary>
-        private string ExtractContentFromParaXml(string paraXmlContent)
+    /// <summary>
+    /// Rebuilds HTML from _para.xml, preserving x/y/width/height/textalign.
+    /// Paragraphs without coordinates are emitted as flowing (not absolute) so they don't pile at 0,0.
+    /// </summary>
+    private string BuildContentFromParaXml(string paraXmlContent)
+    {
+        try
         {
-            try
+            var doc = new XmlDocument();
+            doc.LoadXml(paraXmlContent);
+            var parasNode = doc.SelectSingleNode("//paras");
+            if (parasNode == null) return "";
+
+            var sb = new StringBuilder();
+
+            foreach (XmlNode child in parasNode.ChildNodes)
             {
-                var doc = new XmlDocument();
-                doc.LoadXml(paraXmlContent);
-                var parasNode = doc.SelectSingleNode("//paras");
-                if (parasNode == null) return "";
+                if (child.Name != "para") continue;
 
-                var sb = new StringBuilder();
+                var text = child.InnerText;
+                if (string.IsNullOrEmpty(text)) continue;
 
-                foreach (XmlNode child in parasNode.ChildNodes)
+                text = System.Security.SecurityElement.Escape(text) ?? text;
+
+                var style = child.Attributes?["style"]?.Value ?? "";
+                var x     = child.Attributes?["x"]?.Value;
+                var y     = child.Attributes?["y"]?.Value;
+                var w     = child.Attributes?["width"]?.Value;
+                var h     = child.Attributes?["height"]?.Value;
+                var align = child.Attributes?["textalign"]?.Value;
+
+                bool hasCoords = !string.IsNullOrEmpty(x) && !string.IsNullOrEmpty(y);
+
+                var pos = new StringBuilder();
+                if (!string.IsNullOrEmpty(style)) pos.Append(style).Append(';');
+
+                if (hasCoords)
                 {
-                    if (child.Name != "para") continue;
-
-                    var text = child.InnerText;
-                    if (string.IsNullOrEmpty(text)) continue;
-
-                    text = System.Security.SecurityElement.Escape(text) ?? text;
-
-                    var style = child.Attributes?["style"]?.Value ?? "";
-                    var x     = child.Attributes?["x"]?.Value;
-                    var y     = child.Attributes?["y"]?.Value;
-                    var w     = child.Attributes?["width"]?.Value;
-                    var h     = child.Attributes?["height"]?.Value;
-                    var align = child.Attributes?["textalign"]?.Value;
-
-                    bool hasCoords = !string.IsNullOrEmpty(x) && !string.IsNullOrEmpty(y);
-
-                    var pos = new StringBuilder();
-                    if (!string.IsNullOrEmpty(style)) pos.Append(style).Append(';');
-
-                    if (hasCoords)
-                    {
-                        pos.Append("position:absolute;");
-                        pos.Append("left:").Append(x).Append("px;");
-                        pos.Append("top:").Append(y).Append("px;");
-                    }
-
-                    if (!string.IsNullOrEmpty(w)) pos.Append("width:").Append(w).Append("px;");
-                    if (!string.IsNullOrEmpty(h)) pos.Append("height:").Append(h).Append("px;");
-                    if (!string.IsNullOrEmpty(align)) pos.Append("text-align:").Append(align).Append(';');
-
-                    if (string.IsNullOrEmpty(align)) pos.Append("text-align:left;");
-
-                    var cls = hasCoords ? "para para-abs" : "para para-flow";
-
-                    sb.Append("<div class='").Append(cls).Append("' style=\"")
-                      .Append(pos.ToString())
-                      .Append("\">")
-                      .Append(text)
-                      .Append("</div>");
+                    pos.Append("position:absolute;");
+                    pos.Append("left:").Append(x).Append("px;");
+                    pos.Append("top:").Append(y).Append("px;");
                 }
 
-                return sb.ToString();
+                if (!string.IsNullOrEmpty(w)) pos.Append("width:").Append(w).Append("px;");
+                if (!string.IsNullOrEmpty(h)) pos.Append("height:").Append(h).Append("px;");
+                if (!string.IsNullOrEmpty(align)) pos.Append("text-align:").Append(align).Append(';');
+
+                if (string.IsNullOrEmpty(align)) pos.Append("text-align:left;");
+
+                var cls = hasCoords ? "para para-abs" : "para para-flow";
+
+                sb.Append("<div class='").Append(cls).Append("' style=\"")
+                  .Append(pos.ToString())
+                  .Append("\">")
+                  .Append(text)
+                  .Append("</div>");
             }
-            catch
-            {
-                return "";
-            }
+
+            return sb.ToString();
         }
-
-        public async Task<string> GetRedAnswerContentAsync(string filePath, string answerType)
+        catch (Exception ex)
         {
-            try
-            {
-                var directory = Path.GetDirectoryName(filePath) ?? "";
-                var fileName = Path.GetFileNameWithoutExtension(filePath) ?? "";
-
-                string redAnswerPath = Path.Combine(directory, fileName + "_redAnswer.html");
-
-                if (!File.Exists(redAnswerPath))
-                {
-                    string[] altPatterns = answerType == "teacherNotes"
-                        ? new[]
-                        {
-                            Path.Combine(directory, fileName + "_teacherNotes.html"),
-                            Path.Combine(directory, fileName + "_teacher.html"),
-                            Path.Combine(directory, "teacherNotes.html"),
-                            Path.Combine(directory, "teacher.html")
-                        }
-                        : new[]
-                        {
-                            Path.Combine(directory, fileName + "_studentAnswers.html"),
-                            Path.Combine(directory, fileName + "_studentAnswer.html"),
-                            Path.Combine(directory, fileName + "_student.html"),
-                            Path.Combine(directory, "studentAnswers.html"),
-                            Path.Combine(directory, "studentAnswer.html"),
-                            Path.Combine(directory, "redAnswer.html")
-                        };
-
-                    foreach (var alt in altPatterns)
-                    {
-                        if (File.Exists(alt))
-                        {
-                            redAnswerPath = alt;
-                            break;
-                        }
-                    }
-                }
-
-                if (!File.Exists(redAnswerPath)) return "";
-
-                string content = await File.ReadAllTextAsync(redAnswerPath);
-
-                content = Regex.Replace(content, @"display\s*:\s*none\s*;?", "", RegexOptions.IgnoreCase);
-                content = Regex.Replace(content, @"visibility\s*:\s*hidden\s*;?", "", RegexOptions.IgnoreCase);
-                content = Regex.Replace(content, @"style\s*=\s*[""']\s*[""']", "", RegexOptions.IgnoreCase);
-
-                var bodyMatch = Regex.Match(content, @"<body[^>]*>([\s\S]*?)</body>", RegexOptions.IgnoreCase);
-                if (bodyMatch.Success) content = bodyMatch.Groups[1].Value;
-
-                string extractedContent = "";
-                string classPattern = answerType == "teacherNotes" ? "tbnote" : "sa";
-
-                var matches = Regex.Matches(content,
-                    @"<[^>]*class\s*=\s*[""'][^""']*" + classPattern + @"[^""']*[""'][^>]*>[\s\S]*?</[^>]*>",
-                    RegexOptions.IgnoreCase);
-
-                foreach (Match match in matches)
-                    extractedContent += match.Value + "\n";
-
-                if (string.IsNullOrEmpty(extractedContent) && answerType == "studentAnswers")
-                    extractedContent = content;
-
-                return extractedContent;
-            }
-            catch
-            {
-                return "";
-            }
+            Log($"Error building content from para XML: {ex.Message}");
+            return "";
         }
+    }
 
-        public string GetStepBackgroundImage(string filePath)
-        {
-            var directory = Path.GetDirectoryName(filePath) ?? "";
-            var stepNumber = ParseStepIndex(Path.GetFileName(filePath));
+    private string BuildFullViewHtml(string bgImage, string baseContent, string redContent, string fileName, string fontCss, string viewType)
+    {
+        double zoom = _bookService.CurrentZoom;
 
-            var imagesPath = Path.Combine(directory, "images");
-            if (Directory.Exists(imagesPath))
-            {
-                var imagePath = Path.Combine(imagesPath, $"steps_{stepNumber}.jpg");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+        if (string.IsNullOrEmpty(bgImage))
+            bgImage = GetPlaceholderImage();
 
-                imagePath = Path.Combine(imagesPath, $"steps_{stepNumber}.png");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+        string borderColor = viewType == "teacherNotes" ? "#3498db" : "#2ecc71";
+        string highlightClass = viewType == "teacherNotes" ? "tbnote" : "sa";
 
-                imagePath = Path.Combine(imagesPath, $"step_{stepNumber}.jpg");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
+        if (string.IsNullOrEmpty(redContent))
+            return BuildBaseContentHtml(bgImage, baseContent, fileName, fontCss);
 
-                imagePath = Path.Combine(imagesPath, $"step_{stepNumber}.png");
-                if (File.Exists(imagePath)) return ConvertImageToBase64HighQuality(imagePath);
-            }
+        return $@"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
+            <title>{fileName}</title>
+            <style>
+                {fontCss}
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                html, body {{
+                    width: 100%;
+                    height: 100%;
+                    overflow: auto;
+                    background: #E8E8E8;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                }}
+                body {{
+                    display: flex;
+                    justify-content: center;
+                    align-items: flex-start;
+                    min-height: 100vh;
+                    padding: 10px;
+                }}
+                .page-container {{
+                    position: relative;
+                    width: 1024px;
+                    height: 1344px;
+                    flex-shrink: 0;
+                    background: #ffffff;
+                    box-shadow: 0 0 20px rgba(0,0,0,0.15);
+                    overflow: hidden;
+                    border-radius: 2px;
+                    transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
+                    transform-origin: top center;
+                }}
+                .background-img {{
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    object-fit: contain;
+                    pointer-events: none;
+                    z-index: 1;
+                }}
+                .content-overlay {{
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    z-index: 2;
+                }}
+                .content-overlay > * {{ position: relative; }}
+                .content-overlay > .para-abs {{ position: absolute !important; }}
+                .base-content {{
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    z-index: 5;
+                    pointer-events: none;
+                }}
+                .base-content > * {{ position: relative; }}
+                .base-content > .para-abs {{ position: absolute !important; }}
 
-            return GetPlaceholderImage();
-        }
+                /* ==== CJK paragraph alignment ====
+                   line-height is intentionally LEFT ALONE.
+                   The source font.css declares 1.5em (or whatever the book uses).
+                   Forcing it here causes vertical drift because different books
+                   use different line-heights, and the mismatch compounds per paragraph. */
+                .base-content .para {{
+                    white-space: pre;
+                    font-kerning: none;
+                    font-feature-settings: 'kern' 0, 'liga' 0;
+                    text-rendering: geometricPrecision;
+                    -webkit-font-smoothing: antialiased;
+                    -webkit-text-size-adjust: 100%;
+                }}
+                .base-content span,
+                .base-content div[class*='char'],
+                .base-content div[class*='word'] {{
+                    white-space: pre;
+                }}
 
-        /// <summary>
-        /// Loads font.css, embeds every referenced font as base64, and appends
-        /// a CJK fallback stack with locked metrics.
-        ///
-        /// IMPORTANT: line-height is NOT overridden here. The source font.css
-        /// declares line-height per class (e.g. 1.5em). Forcing our own value
-        /// causes vertical drift because different books use different line-heights,
-        /// and the mismatch compounds per paragraph.
-        /// </summary>
-        public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
-        {
-            try
-            {
-                if (_fontCache.TryGetValue(directory, out var cached))
-                    return cached;
-
-                string fontCss = "";
-                string fontCssPath = "";
-
-                var fontCssFiles = Directory.GetFiles(directory, "*_font.css");
-                if (fontCssFiles.Length > 0)
-                    fontCssPath = fontCssFiles[0];
-                else
-                {
-                    var rootFontCss = Path.Combine(_currentBookPath, "font.css");
-                    if (File.Exists(rootFontCss))
-                        fontCssPath = rootFontCss;
-                }
-
-                if (!string.IsNullOrEmpty(fontCssPath) && File.Exists(fontCssPath))
-                {
-                    fontCss = await File.ReadAllTextAsync(fontCssPath);
-
-                    string fontsFolder = Path.Combine(_currentBookPath, "FONTS");
-                    if (!Directory.Exists(fontsFolder))
-                        fontsFolder = Path.Combine(_currentBookPath, "fonts");
-
-                    Dictionary<string, string> fontFileIndex = null;
-                    if (Directory.Exists(fontsFolder))
-                    {
-                        fontFileIndex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var f in Directory.GetFiles(fontsFolder, "*.*", SearchOption.AllDirectories))
-                        {
-                            var ext = Path.GetExtension(f).ToLowerInvariant();
-                            if (ext != ".ttf" && ext != ".otf" && ext != ".woff" && ext != ".woff2")
-                                continue;
-
-                            var justName = Path.GetFileName(f);
-                            var justStem = Path.GetFileNameWithoutExtension(f);
-                            var noSpace = justStem.Replace(" ", "").Replace("-", "").Replace("_", "");
-
-                            if (!fontFileIndex.ContainsKey(justName)) fontFileIndex[justName] = f;
-                            if (!fontFileIndex.ContainsKey(justStem)) fontFileIndex[justStem] = f;
-                            if (!fontFileIndex.ContainsKey(noSpace)) fontFileIndex[noSpace] = f;
-                        }
-                    }
-
-                    var fontFaceMatches = Regex.Matches(
-                        fontCss,
-                        @"@font-face\s*\{(?<body>.*?)\}",
-                        RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
-                    int totalFaces = fontFaceMatches.Count;
-                    int embeddedCount = 0;
-
-                    foreach (Match match in fontFaceMatches)
-                    {
-                        var fontFaceContent = match.Groups[1].Value;
-                        var urlMatches = Regex.Matches(fontFaceContent, @"url\(['""]?([^)'""]+)['""]?\)");
-                        bool faceWasEmbedded = false;
-
-                        foreach (Match urlMatch in urlMatches)
-                        {
-                            var rawPath = urlMatch.Groups[1].Value;
-                            var cleanPath = rawPath
-                                .Replace("../FONTS/", "")
-                                .Replace("../fonts/", "")
-                                .Replace("./", "")
-                                .Trim();
-
-                            string fullFontPath = null;
-
-                            if (fontFileIndex != null)
-                            {
-                                var justName = Path.GetFileName(cleanPath);
-                                var justStem = Path.GetFileNameWithoutExtension(cleanPath);
-                                var noSpace = justStem.Replace(" ", "").Replace("-", "").Replace("_", "");
-
-                                if (fontFileIndex.TryGetValue(justName, out var p1)) fullFontPath = p1;
-                                else if (fontFileIndex.TryGetValue(justStem, out var p2)) fullFontPath = p2;
-                                else if (fontFileIndex.TryGetValue(noSpace, out var p3)) fullFontPath = p3;
-                            }
-
-                            if (!string.IsNullOrEmpty(fullFontPath) && File.Exists(fullFontPath))
-                            {
-                                var fontBytes = File.ReadAllBytes(fullFontPath);
-                                var fontBase64 = Convert.ToBase64String(fontBytes);
-                                var ext = Path.GetExtension(fullFontPath).ToLower();
-                                var mimeType = ext switch
-                                {
-                                    ".ttf" => "font/ttf",
-                                    ".otf" => "font/otf",
-                                    ".woff" => "font/woff",
-                                    ".woff2" => "font/woff2",
-                                    _ => "font/ttf"
-                                };
-
-                                var dataUri = $"data:{mimeType};base64,{fontBase64}";
-
-                                fontCss = fontCss.Replace($"url('{rawPath}')", $"url('{dataUri}')");
-                                fontCss = fontCss.Replace($"url(\"{rawPath}\")", $"url('{dataUri}')");
-                                fontCss = fontCss.Replace($"url({rawPath})", $"url('{dataUri}')");
-
-                                faceWasEmbedded = true;
-                                Log($"Embedded font: {Path.GetFileName(fullFontPath)} ({fontBytes.Length} bytes)");
-                            }
-                            else
-                            {
-                                Log($"Font file NOT FOUND: '{rawPath}' in {fontsFolder}");
-                            }
-                        }
-                        if (faceWasEmbedded)
-                            embeddedCount++;
-                    }
-
-                    Log($"Font embedding summary: {embeddedCount} of {totalFaces} @font-face rules embedded");
-
-                    // ---- CJK metric lock ----
-                    // Normalises the em-box across embedded fonts so the same
-                    // 'top: Npx' lands at the same pixel regardless of which
-                    // CJK font renders the glyph. Does NOT touch line-height —
-                    // that stays under the source font.css's control.
-                    fontCss += @"
-
-/* ==== CJK metric lock ==== */
-@font-face {
-    font-family: 'CJKLocked';
-    src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
-         local('Microsoft JhengHei'), local('Microsoft YaHei'),
-         local('Noto Sans CJK TC'), local('Noto Sans CJK SC'),
-         local('Noto Serif CJK TC'), local('Noto Serif CJK SC');
-    ascent-override: 116%;
-    descent-override: 24%;
-    line-gap-override: 0%;
-}
-body, .para, .base-content, .content-overlay {
-    font-family: 'CJKLocked', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
-}
-";
-
-                    _fontCache[directory] = fontCss;
-                    return fontCss;
-                }
-
-                fontCss = await GenerateFontCssFromFiles();
-                fontCss += @"
-
-/* ==== CJK metric lock ==== */
-@font-face {
-    font-family: 'CJKLocked';
-    src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
-         local('Microsoft JhengHei'), local('Microsoft YaHei'),
-         local('Noto Sans CJK TC'), local('Noto Sans CJK SC');
-    ascent-override: 116%;
-    descent-override: 24%;
-    line-gap-override: 0%;
-}
-body, .para, .base-content, .content-overlay {
-    font-family: 'CJKLocked', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
-}
-";
-                _fontCache[directory] = fontCss;
-                return fontCss;
-            }
-            catch (Exception ex)
-            {
-                Log($"Error loading fonts: {ex.Message}");
-                return "";
-            }
-        }
-
-        private async Task<string> GenerateFontCssFromFiles()
-        {
-            try
-            {
-                string fontCss = "";
-                var fontsFolder = Path.Combine(_currentBookPath, "FONTS");
-                if (!Directory.Exists(fontsFolder))
-                    fontsFolder = Path.Combine(_currentBookPath, "fonts");
-                if (!Directory.Exists(fontsFolder)) return "";
-
-                var fontExtensions = new[] { ".ttf", ".otf", ".woff", ".woff2" };
-                var fontFiles = new List<string>();
-                foreach (var ext in fontExtensions)
-                    fontFiles.AddRange(Directory.GetFiles(fontsFolder, "*" + ext));
-
-                foreach (var fontFile in fontFiles)
-                {
-                    try
-                    {
-                        var fontName = Path.GetFileNameWithoutExtension(fontFile);
-                        var fontBytes = File.ReadAllBytes(fontFile);
-                        var fontBase64 = Convert.ToBase64String(fontBytes);
-                        var ext = Path.GetExtension(fontFile).ToLower();
-                        var format = ext switch
-                        {
-                            ".ttf" => "truetype",
-                            ".otf" => "opentype",
-                            ".woff" => "woff",
-                            ".woff2" => "woff2",
-                            _ => "truetype"
-                        };
-                        var mimeType = ext switch
-                        {
-                            ".ttf" => "font/ttf",
-                            ".otf" => "font/otf",
-                            ".woff" => "font/woff",
-                            ".woff2" => "font/woff2",
-                            _ => "font/ttf"
-                        };
-                        var dataUri = $"data:{mimeType};base64,{fontBase64}";
-
-                        fontCss += $@"
-@font-face {{
-    font-family: '{fontName}';
-    src: url('{dataUri}') format('{format}');
-    font-weight: normal;
-    font-style: normal;
-    ascent-override: 116%;
-    descent-override: 24%;
-    line-gap-override: 0%;
-}}";
-                    }
-                    catch { }
-                }
-
-                return fontCss;
-            }
-            catch { return ""; }
-        }
-
-        private string GetPlaceholderImage()
-            => "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%23ffffff'/%3E%3C/svg%3E";
-
-        private string ConvertImageToBase64HighQuality(string imagePath)
-        {
-            try
-            {
-                if (_imageCache.TryGetValue(imagePath, out var cached)) return cached;
-
-                var bytes = File.ReadAllBytes(imagePath);
-                var extension = Path.GetExtension(imagePath).ToLower();
-                var mimeType = extension switch
-                {
-                    ".png" => "image/png",
-                    ".jpg" or ".jpeg" => "image/jpeg",
-                    ".webp" => "image/webp",
-                    ".gif" => "image/gif",
-                    ".bmp" => "image/bmp",
-                    ".svg" => "image/svg+xml",
-                    _ => "image/jpeg"
-                };
-
-                var base64 = Convert.ToBase64String(bytes);
-                var result = $"data:{mimeType};base64,{base64}";
-                _imageCache[imagePath] = result;
-                return result;
-            }
-            catch
-            {
-                return GetPlaceholderImage();
-            }
-        }
-
-        private string BuildOverlayHtml(string bgImage, string contentHtml, string fileName, string fontCss, string teacherAnswerHtml, string studentAnswerHtml)
-        {
-            if (string.IsNullOrEmpty(bgImage))
-                bgImage = GetPlaceholderImage();
-
-            if (string.IsNullOrEmpty(contentHtml))
-                contentHtml = "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
-
-            double zoom = _currentZoom;
-
-            return $@"
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
-    <title>{fileName}</title>
-    <style>
-        {fontCss}
-
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-
-        html, body {{
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background: #E8E8E8;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }}
-
-        body {{
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: 100vh;
-            padding: 0;
-            margin: 0;
-        }}
-
-        .page-wrapper {{
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            padding: 0;
-            margin: 0;
-        }}
-
-        .page-container {{
-            position: relative;
-            width: 1024px;
-            height: 1344px;
-            flex-shrink: 0;
-            background: #ffffff;
-            box-shadow: 0 0 20px rgba(0,0,0,0.15);
-            overflow: hidden;
-            border-radius: 2px;
-            transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
-            transform-origin: top center;
-        }}
-
-        .background-img {{
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            pointer-events: none;
-            z-index: 1;
-        }}
-
-        .content-overlay {{
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 2;
-        }}
-
-        .content-overlay > * {{ position: relative; }}
-        .content-overlay > .para-abs {{ position: absolute !important; }}
-
-        /* ==== CJK paragraph alignment ====
-           line-height is intentionally NOT set here.
-           The source font.css controls it per class (typically 1.5em).
-           Forcing a different value causes the vertical drift you saw. */
-        .content-overlay .para {{
-            white-space: pre;
-            font-kerning: none;
-            font-feature-settings: 'kern' 0, 'liga' 0;
-            text-rendering: geometricPrecision;
-            -webkit-font-smoothing: antialiased;
-            -webkit-text-size-adjust: 100%;
-        }}
-    </style>
-</head>
-<body>
-    <div class='page-wrapper'>
-        <div class='page-container'>
-            <img class='background-img' src='{bgImage}' alt='' />
-            <div class='content-overlay'>
-                {contentHtml}
-                {teacherAnswerHtml}
-                {studentAnswerHtml}
+                .highlight-overlay {{
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    z-index: 10;
+                    pointer-events: none;
+                    overflow: visible;
+                }}
+                .highlight-overlay > *,
+                .highlight-overlay > * > * {{
+                    position: absolute !important;
+                }}
+                .{highlightClass} {{
+                    background: rgba(255, 255, 0, 0.25);
+                    border: 3px solid {borderColor};
+                    border-radius: 4px;
+                    padding: 3px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class='page-container'>
+                <img class='background-img' src='{bgImage}' alt='' />
+                <div class='content-overlay'>
+                    <div class='base-content'>{baseContent}</div>
+                    <div class='highlight-overlay'>{redContent}</div>
+                </div>
             </div>
-        </div>
-    </div>
-</body>
-</html>";
+        </body>
+        </html>";
+    }
+
+    private string BuildBaseContentHtml(string bgImage, string baseContent, string fileName, string fontCss)
+    {
+        double zoom = _bookService.CurrentZoom;
+
+        if (string.IsNullOrEmpty(bgImage))
+            bgImage = GetPlaceholderImage();
+
+        return $@"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes'>
+            <title>{fileName}</title>
+            <style>
+                {fontCss}
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                html, body {{
+                    width: 100%;
+                    height: 100%;
+                    overflow: auto;
+                    background: #E8E8E8;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                }}
+                body {{
+                    display: flex;
+                    justify-content: center;
+                    align-items: flex-start;
+                    min-height: 100vh;
+                    padding: 10px;
+                }}
+                .page-container {{
+                    position: relative;
+                    width: 1024px;
+                    height: 1344px;
+                    flex-shrink: 0;
+                    background: #ffffff;
+                    box-shadow: 0 0 20px rgba(0,0,0,0.15);
+                    overflow: hidden;
+                    border-radius: 2px;
+                    transform: scale({zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)});
+                    transform-origin: top center;
+                }}
+                .background-img {{
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    object-fit: contain;
+                    pointer-events: none;
+                    z-index: 1;
+                }}
+                .content-overlay {{
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    z-index: 2;
+                }}
+                .content-overlay > * {{ position: relative; }}
+                .content-overlay > .para-abs {{ position: absolute !important; }}
+                .base-content {{
+                    position: absolute;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    z-index: 5;
+                    pointer-events: none;
+                }}
+                .base-content > * {{ position: relative; }}
+                .base-content > .para-abs {{ position: absolute !important; }}
+
+                /* ==== CJK paragraph alignment ====
+                   line-height is intentionally LEFT ALONE. */
+                .base-content .para {{
+                    white-space: pre;
+                    font-kerning: none;
+                    font-feature-settings: 'kern' 0, 'liga' 0;
+                    text-rendering: geometricPrecision;
+                    -webkit-font-smoothing: antialiased;
+                    -webkit-text-size-adjust: 100%;
+                }}
+                .base-content span,
+                .base-content div[class*='char'],
+                .base-content div[class*='word'] {{
+                    white-space: pre;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class='page-container'>
+                <img class='background-img' src='{bgImage}' alt='' />
+                <div class='content-overlay'>
+                    <div class='base-content'>{baseContent}</div>
+                </div>
+            </div>
+        </body>
+        </html>";
+    }
+
+    private string GetPlaceholderImage()
+    {
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%23ffffff'/%3E%3C/svg%3E";
+    }
+
+    private void UpdateDisplay()
+    {
+        bool isTwoPage = _bookService.TwoPageSpread;
+
+        if (isTwoPage)
+        {
+            RightColumn.Width = new GridLength(1, GridUnitType.Star);
+
+            ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
+            ContentWebView.IsVisible = true;
+
+            if (!string.IsNullOrEmpty(_bookService.NextPageHtml))
+            {
+                NextPageWebView.Source = new HtmlWebViewSource { Html = _bookService.NextPageHtml };
+            }
+            else
+            {
+                NextPageWebView.Source = new HtmlWebViewSource { Html = "<html><body style='background:#E8E8E8;'></body></html>" };
+            }
+            NextPageWebView.IsVisible = true;
+
+            TeacherWebView.IsVisible = false;
+            StudentWebView.IsVisible = false;
+        }
+        else
+        {
+            RightColumn.Width = new GridLength(0);
+            NextPageWebView.IsVisible = false;
+
+            string html = _currentViewMode switch
+            {
+                "content" => _currentContentHtml,
+                "teacher" => _currentTeacherHtml,
+                "student" => _currentStudentHtml,
+                _ => _currentContentHtml
+            };
+
+            if (!string.IsNullOrEmpty(html))
+            {
+                ContentWebView.Source = new HtmlWebViewSource { Html = html };
+            }
+            else
+            {
+                ContentWebView.Source = new HtmlWebViewSource { Html = _currentContentHtml };
+            }
+
+            if (_showTeacherNotes && !string.IsNullOrEmpty(_currentTeacherHtml))
+            {
+                TeacherWebView.IsVisible = true;
+                StudentWebView.IsVisible = false;
+                TeacherWebView.Source = new HtmlWebViewSource { Html = _currentTeacherHtml };
+            }
+            else if (_showStudentAnswers && !string.IsNullOrEmpty(_currentStudentHtml))
+            {
+                TeacherWebView.IsVisible = false;
+                StudentWebView.IsVisible = true;
+                StudentWebView.Source = new HtmlWebViewSource { Html = _currentStudentHtml };
+            }
+            else
+            {
+                TeacherWebView.IsVisible = false;
+                StudentWebView.IsVisible = false;
+            }
+
+            UpdateViewModeButton();
+        }
+    }
+
+    private void UpdateViewModeButton()
+    {
+        ViewModeButton.Text = _currentViewMode switch
+        {
+            "content" => "◉ Content",
+            "teacher" => "✎ Teacher",
+            "student" => "✓ Student",
+            _ => "◉ Content"
+        };
+    }
+
+    private void OnViewModeClicked(object sender, EventArgs e)
+    {
+        _currentViewMode = _currentViewMode switch
+        {
+            "content" when (!string.IsNullOrEmpty(_currentTeacherHtml)) => "teacher",
+            "teacher" when (!string.IsNullOrEmpty(_currentStudentHtml)) => "student",
+            "student" => "content",
+            "content" => "content",
+            _ => "content"
+        };
+
+        UpdateDisplay();
+        UpdateViewModeButton();
+        UpdateTeacherButton();
+        UpdateStudentButton();
+    }
+
+    private void OnTeacherNotesClicked(object sender, EventArgs e)
+    {
+        if (!string.IsNullOrEmpty(_currentTeacherHtml))
+        {
+            _currentViewMode = _currentViewMode == "teacher" ? "content" : "teacher";
+            UpdateDisplay();
+            UpdateViewModeButton();
+            UpdateTeacherButton();
+            UpdateStudentButton();
+        }
+        else
+        {
+            StatusLabel.Text = "No teacher notes available for this page";
+        }
+    }
+
+    private void OnStudentAnswersClicked(object sender, EventArgs e)
+    {
+        if (!string.IsNullOrEmpty(_currentStudentHtml))
+        {
+            _currentViewMode = _currentViewMode == "student" ? "content" : "student";
+            UpdateDisplay();
+            UpdateViewModeButton();
+            UpdateTeacherButton();
+            UpdateStudentButton();
+        }
+        else
+        {
+            StatusLabel.Text = "No student answers available for this page";
+        }
+    }
+
+    private void UpdateTeacherButton()
+    {
+        if (TeacherNotesButton == null) return;
+
+        bool active = _currentViewMode == "teacher";
+        bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+
+        TeacherNotesButton.Text = active ? "✎ Hide Notes" : "✎ Notes";
+        TeacherNotesButton.BackgroundColor = active
+            ? Color.FromArgb("#34C759")
+            : (dark ? Color.FromArgb("#2C2C2E") : Color.FromArgb("#F7F7F9"));
+        TeacherNotesButton.TextColor = active
+            ? Colors.White
+            : (dark ? Colors.White : Colors.Black);
+    }
+
+    private void UpdateStudentButton()
+    {
+        if (StudentAnswersButton == null) return;
+
+        bool active = _currentViewMode == "student";
+        bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+
+        StudentAnswersButton.Text = active ? "✓ Hide Answers" : "✓ Answers";
+        StudentAnswersButton.BackgroundColor = active
+            ? Color.FromArgb("#34C759")
+            : (dark ? Color.FromArgb("#2C2C2E") : Color.FromArgb("#F7F7F9"));
+        StudentAnswersButton.TextColor = active
+            ? Colors.White
+            : (dark ? Colors.White : Colors.Black);
+    }
+
+    private async void OnBackClicked(object sender, EventArgs e)
+    {
+        await Navigation.PopAsync();
+    }
+
+    private async void OnExportPdfClicked(object sender, EventArgs e)
+    {
+        if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
+        {
+            await DisplayAlert("Info", "Please load a book first.", "OK");
+            return;
         }
 
-        public async Task<string> BuildPageHtmlForRenderAsync(
-            string filePath,
-            bool includeAnswers,
-            bool includeTeacherNotes,
-            bool includeStudentAnswers)
+        try
         {
-            var directory = Path.GetDirectoryName(filePath) ?? "";
-            var fileName = Path.GetFileName(filePath) ?? "";
+            var includeAnswers = await DisplayAlert("Export Options",
+                "Include answers in the PDF?",
+                "Yes", "No");
 
-            string bgImage = GetStepBackgroundImage(filePath);
-            string contentHtml = await ExtractContentFromHtmlFile(filePath, fileName, directory);
-            string fontCss = await GetFontCssWithEmbeddedFonts(directory);
-
-            string teacherHtml = "";
-            string studentHtml = "";
+            bool includeTeacherNotes = false;
+            bool includeStudentAnswers = false;
 
             if (includeAnswers)
             {
-                if (includeTeacherNotes)
-                {
-                    var redContent = await GetRedAnswerContentAsync(filePath, "teacherNotes");
-                    if (!string.IsNullOrEmpty(redContent))
-                    {
-                        teacherHtml = $@"<div class='highlight-overlay teacher-overlay'>
-<style>.tbnote {{ background: rgba(255,255,0,0.25); border: 3px solid #3498db; border-radius: 4px; padding: 3px; }}</style>
-{redContent}</div>";
-                    }
-                }
+                includeTeacherNotes = await DisplayAlert("Answer Type",
+                    "Include Teacher Notes?", "Yes", "No");
+                includeStudentAnswers = await DisplayAlert("Answer Type",
+                    "Include Student Answers?", "Yes", "No");
 
-                if (includeStudentAnswers)
-                {
-                    var redContent = await GetRedAnswerContentAsync(filePath, "studentAnswers");
-                    if (!string.IsNullOrEmpty(redContent))
-                    {
-                        studentHtml = $@"<div class='highlight-overlay student-overlay'>
-<style>.sa {{ background: rgba(255,255,0,0.25); border: 3px solid #2ecc71; border-radius: 4px; padding: 3px; }}</style>
-{redContent}</div>";
-                    }
-                }
+                if (!includeTeacherNotes && !includeStudentAnswers)
+                    includeAnswers = false;
             }
 
-            return $@"<!DOCTYPE html>
-<html>
-<head>
-<meta charset='UTF-8'>
-<style>
-    {fontCss}
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ width: 1024px; height: 1344px; overflow: hidden; background: #ffffff; }}
-    .page-container {{ position: relative; width: 1024px; height: 1344px; background: #ffffff; overflow: hidden; }}
-    .background-img {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }}
-    .content-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }}
-    .content-overlay > * {{ position: relative; top: 0; left: 0; }}
-    .content-overlay > .para-abs {{ position: absolute !important; }}
-    .base-content {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }}
-    .base-content > * {{ position: relative; }}
-    .base-content > .para-abs {{ position: absolute !important; }}
+            var bookTitle = _bookService.BookTitle;
+            var safeFileName = string.Join("_", bookTitle.Split(Path.GetInvalidFileNameChars()));
+            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var exportDir = Path.Combine(documentsPath, "BookViewer", "Exports");
+            Directory.CreateDirectory(exportDir);
+            var outputPath = Path.Combine(exportDir, $"{safeFileName}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
 
-    /* line-height intentionally NOT overridden — see GetFontCssWithEmbeddedFonts */
-    .base-content .para {{
-        white-space: pre;
-        font-kerning: none;
-        font-feature-settings: 'kern' 0, 'liga' 0;
-        text-rendering: geometricPrecision;
-        -webkit-font-smoothing: antialiased;
-    }}
+            ExportPdfButton.IsEnabled = false;
+            StatusLabel.Text = "Exporting PDF...";
 
-    .highlight-overlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; overflow: visible; }}
-    .highlight-overlay > *, .highlight-overlay > * > * {{ position: absolute !important; }}
-    .teacher-overlay .tbnote, .highlight-overlay .tbnote {{ background: rgba(255,255,0,0.25); border: 3px solid #3498db; border-radius: 4px; padding: 3px; }}
-    .student-overlay .sa, .highlight-overlay .sa {{ background: rgba(255,255,0,0.25); border: 3px solid #2ecc71; border-radius: 4px; padding: 3px; }}
-</style>
-</head>
-<body>
-<div class='page-container'>
-    <img class='background-img' src='{bgImage}' />
-    <div class='content-overlay'>
-        <div class='base-content'>{contentHtml}</div>
-        {teacherHtml}
-        {studentHtml}
-    </div>
-</div>
-</body>
-</html>";
+            var pdfService = new Services.PdfExportService(_bookService);
+
+            pdfService.RenderPageToImageAsync = async (html) =>
+            {
+            #if IOS
+                return await BookViewer.Platforms.iOS.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+            #elif ANDROID
+                return await BookViewer.Platforms.Android.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+            #elif WINDOWS
+                return await BookViewer.Platforms.Windows.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+            #else
+                await Task.CompletedTask;
+                return null;
+            #endif
+            };
+
+            pdfService.OnProgress += (s, progress) =>
+                Dispatcher.Dispatch(() => StatusLabel.Text = $"Exporting PDF... {progress}%");
+
+            var tcs = new TaskCompletionSource<string>();
+            pdfService.OnComplete += (s, path) => tcs.TrySetResult(path);
+            pdfService.OnError += (s, error) => tcs.TrySetException(new Exception(error));
+
+            await pdfService.ExportBookAsPdfAsync(outputPath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
+
+            var resultPath = await tcs.Task;
+
+            ExportPdfButton.IsEnabled = true;
+            StatusLabel.Text = "PDF export complete!";
+
+            var openNow = await DisplayAlert("Export Complete",
+                $"PDF saved to:\n{resultPath}\n\nOpen it now?",
+                "Open", "Later");
+
+            if (openNow)
+            {
+                await Launcher.Default.OpenAsync(new OpenFileRequest
+                {
+                    File = new ReadOnlyFile(resultPath)
+                });
+            }
         }
-
-        public void NavigatePrevious()
+        catch (Exception ex)
         {
-            if (_currentPageIndex > 0) _ = LoadPageAsync(_currentPageIndex - 1);
+            ExportPdfButton.IsEnabled = true;
+            StatusLabel.Text = $"Export failed: {ex.Message}";
+            await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
+        }
+    }
+
+    private async void OnGridClicked(object sender, EventArgs e)
+    {
+        if (_bookService.PageFiles.Count == 0) return;
+
+        var gridPage = new PageGridView(
+            _bookService.PageFiles,
+            _bookService.CurrentPageIndex,
+            (pageIndex) =>
+            {
+                Dispatcher.Dispatch(async () =>
+                {
+                    await _bookService.LoadPageAsync(pageIndex);
+                });
+            });
+
+        await Navigation.PushAsync(gridPage);
+    }
+
+    private async void OnDecryptClicked(object sender, EventArgs e)
+    {
+        if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
+        {
+            await DisplayAlert("Info", "Please open a book first.", "OK");
+            return;
         }
 
-        public void NavigateNext()
-        {
-            if (_currentPageIndex < _pageFiles.Count - 1) _ = LoadPageAsync(_currentPageIndex + 1);
-        }
+        var confirm = await DisplayAlert("Confirm Decrypt",
+            $"This will decrypt all encrypted files in:\n{_bookService.CurrentBookPath}\n\nContinue?",
+            "Yes", "No");
 
-        public void ToggleAnswers(bool show)
+        if (confirm)
         {
-            OnToggleAnswersRequested?.Invoke(this, show);
-            OnStatusChanged?.Invoke(this, show ? "Answers shown" : "Answers hidden");
+            await _bookService.DecryptBookAsync();
+            await _bookService.LoadBookAsync(_bookService.CurrentBookPath);
         }
+    }
+
+    private void OnPrevClicked(object sender, EventArgs e)
+    {
+        if (_bookService.TwoPageSpread)
+        {
+            var newIndex = _bookService.CurrentPageIndex - 2;
+            if (newIndex >= 0)
+                _ = _bookService.LoadPageAsync(newIndex);
+            else if (_bookService.CurrentPageIndex > 0)
+                _ = _bookService.LoadPageAsync(0);
+        }
+        else
+        {
+            _bookService.NavigatePrevious();
+        }
+    }
+
+    private void OnNextClicked(object sender, EventArgs e)
+    {
+        if (_bookService.TwoPageSpread)
+        {
+            var newIndex = _bookService.CurrentPageIndex + 2;
+            if (newIndex < _bookService.PageFiles.Count)
+                _ = _bookService.LoadPageAsync(newIndex);
+            else if (_bookService.CurrentPageIndex < _bookService.PageFiles.Count - 1)
+                _ = _bookService.LoadPageAsync(_bookService.PageFiles.Count - 1);
+        }
+        else
+        {
+            _bookService.NavigateNext();
+        }
+    }
+
+    private void OnSideBySideClicked(object sender, EventArgs e)
+    {
+        _bookService.ToggleTwoPageSpread();
+    }
+
+    private void OnZoomInClicked(object sender, EventArgs e)
+    {
+        _bookService.ZoomIn();
+    }
+
+    private void OnZoomOutClicked(object sender, EventArgs e)
+    {
+        _bookService.ZoomOut();
+    }
+
+    private void UpdateUI()
+    {
+        var total = _bookService.PageFiles.Count;
+        var current = _bookService.CurrentPageIndex + 1;
+
+        PrevButton.IsEnabled = _bookService.CurrentPageIndex > 0 && total > 0;
+        NextButton.IsEnabled = _bookService.CurrentPageIndex < total - 1 && total > 0;
+        PageInfoLabel.Text = total > 0 ? $"{current} / {total}" : "0 / 0";
+        ZoomLabel.Text = $"{_bookService.CurrentZoom:F1}x";
     }
 }
