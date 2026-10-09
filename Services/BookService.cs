@@ -856,9 +856,10 @@ namespace BookViewer
         /// Loads font.css, embeds every referenced font as base64, and appends
         /// a CJK fallback stack with locked metrics.
         ///
-        /// Metric choice: ascent 100% / descent 0% pairs with line-height:1 so
-        /// that the visible top of the glyph lines up with the top: coordinate
-        /// that the source _para.xml / _ori.html uses.
+        /// Metric choice: the source font.css uses line-height:1.5em. With that
+        /// line box height, the baseline sits at top + (L-1)*F/2 + A*F. To make
+        /// the CJK glyph top (baseline - 1.0*F) land exactly at 'top:', we need
+        /// A = 1 - (L-1)/2 = 0.75 for L=1.5. Hence ascent 75% / descent 25%.
         /// </summary>
         public async Task<string> GetFontCssWithEmbeddedFonts(string directory)
         {
@@ -978,7 +979,8 @@ namespace BookViewer
 
                     Log($"Font embedding summary: {embeddedCount} of {totalFaces} @font-face rules embedded");
 
-                    // Normalise the metric box so line-height:1 puts glyph top at the top: coordinate.
+                    // Metric lock tuned for line-height:1.5 (the source font.css default).
+                    // Pairs with `.para { line-height: 1.5 }` so the glyph top lands on top:.
                     fontCss += @"
 
 /* ==== CJK metric lock ==== */
@@ -988,8 +990,8 @@ namespace BookViewer
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC'),
          local('Noto Serif CJK TC'), local('Noto Serif CJK SC');
-    ascent-override: 100%;
-    descent-override: 0%;
+    ascent-override: 75%;
+    descent-override: 25%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -1010,8 +1012,8 @@ body, .para, .base-content, .content-overlay {
     src: local('PingFang TC'), local('PingFang SC'), local('Heiti TC'),
          local('Microsoft JhengHei'), local('Microsoft YaHei'),
          local('Noto Sans CJK TC'), local('Noto Sans CJK SC');
-    ascent-override: 100%;
-    descent-override: 0%;
+    ascent-override: 75%;
+    descent-override: 25%;
     line-gap-override: 0%;
 }
 body, .para, .base-content, .content-overlay {
@@ -1075,8 +1077,8 @@ body, .para, .base-content, .content-overlay {
     src: url('{dataUri}') format('{format}');
     font-weight: normal;
     font-style: normal;
-    ascent-override: 100%;
-    descent-override: 0%;
+    ascent-override: 75%;
+    descent-override: 25%;
     line-gap-override: 0%;
 }}";
                     }
@@ -1210,12 +1212,12 @@ body, .para, .base-content, .content-overlay {
         .content-overlay > *:not(.para) {{ position: relative; }}
         .content-overlay > .para-abs {{ position: absolute !important; }}
 
-        /* line-height:1 pairs with ascent-override:100% / descent-override:0%
-           so the glyph's visible top aligns with the top: coordinate from the
-           source layout. */
+        /* line-height:1.5 matches the source font.css so spacing is preserved.
+           ascent-override 75% / descent-override 25% pairs with this so the
+           glyph's visual top aligns with the top: coordinate. */
         .content-overlay .para {{
             position: absolute !important;
-            line-height: 1 !important;
+            line-height: 1.5 !important;
             white-space: pre;
             font-kerning: none;
             font-feature-settings: 'kern' 0, 'liga' 0;
@@ -1307,7 +1309,7 @@ body, .para, .base-content, .content-overlay {
 
     .base-content .para {{
         position: absolute !important;
-        line-height: 1 !important;
+        line-height: 1.5 !important;
         white-space: pre;
         font-kerning: none;
         font-feature-settings: 'kern' 0, 'liga' 0;
