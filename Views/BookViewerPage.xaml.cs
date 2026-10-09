@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
@@ -22,14 +23,14 @@ public partial class BookViewerPage : ContentPage
     private string _currentViewMode = "content";
     private bool _bookLoaded = false;
     private int _startFolio = 1;
-    private string _targetSectionId;
+    private string _targetSectionId = "";
 
     private static readonly object _logLock = new object();
-    private static string _logFilePath = null;
+    private static string _logFilePath = "";
 
     private string GetLogFilePath()
     {
-        if (_logFilePath == null)
+        if (string.IsNullOrEmpty(_logFilePath))
         {
             string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             string logFolder = Path.Combine(documentsPath, "BookViewer");
@@ -82,11 +83,6 @@ public partial class BookViewerPage : ContentPage
         Log($"Start folio: {_startFolio}");
         Log($"Log file: {GetLogFilePath()}");
 
-        ContentWebView.BackgroundColor = Colors.Transparent;
-        NextPageWebView.BackgroundColor = Colors.Transparent;
-        TeacherWebView.BackgroundColor = Colors.Transparent;
-        StudentWebView.BackgroundColor = Colors.Transparent;
-
         _bookService.OnPagesLoaded += (s, pages) =>
         {
             Dispatcher.Dispatch(() => UpdateUI());
@@ -109,20 +105,13 @@ public partial class BookViewerPage : ContentPage
 
         _bookService.OnBookLoaded += (s, title) =>
             Dispatcher.Dispatch(() => BookTitleLabel.Text = title);
-        // In constructor — remove these lines:
-        // ContentWebView.BackgroundColor = Colors.Transparent;
-        // NextPageWebView.BackgroundColor = Colors.Transparent;
-        // TeacherWebView.BackgroundColor = Colors.Transparent;
-        // StudentWebView.BackgroundColor = Colors.Transparent;
-        // (they're not set in XAML anymore, remove entirely)
-        
-        // Replace the OnTwoPageSpreadToggled handler:
+
         _bookService.OnTwoPageSpreadToggled += (s, enabled) =>
         {
             Dispatcher.Dispatch(() =>
             {
                 bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
-        
+
                 SideBySideButton.Text = enabled ? "▮▮ 2 Pages" : "▯ 1 Page";
                 SideBySideButton.BackgroundColor = enabled
                     ? Color.FromArgb("#0A84FF")
@@ -130,7 +119,7 @@ public partial class BookViewerPage : ContentPage
                 SideBySideButton.TextColor = enabled
                     ? Colors.White
                     : (dark ? Colors.White : Colors.Black);
-        
+
                 StatusLabel.Text = enabled ? "Two-page spread" : "Single page";
                 UpdateDisplay();
             });
@@ -148,7 +137,7 @@ public partial class BookViewerPage : ContentPage
         {
             if (_bookLoaded) return;
             _bookLoaded = true;
-        
+
             Log("Loaded event fired → calling LoadBookAsync");
             var success = await _bookService.LoadBookAsync(bookFolder);
             if (success)
@@ -160,34 +149,31 @@ public partial class BookViewerPage : ContentPage
                 ViewModeButton.IsEnabled = true;
                 ExportPdfButton.IsEnabled = true;
                 GridButton.IsEnabled = true;
-        
+
                 _currentViewMode = "content";
                 _showTeacherNotes = false;
                 _showStudentAnswers = false;
                 UpdateViewModeButton();
                 UpdateTeacherButton();
                 UpdateStudentButton();
-        
+
                 if (!string.IsNullOrEmpty(_targetSectionId))
                 {
-                    // Primary: use book.xml seqindex
                     int idx = _bookService.GetFirstIndexOfSection(_targetSectionId);
                     Log($"Section {_targetSectionId} → first index {idx}");
-        
-                    // Fallback: pages.xml folio map
+
                     if (idx < 0 && _startFolio > 0)
                     {
                         idx = _bookService.GetIndexForSectionFolio(_targetSectionId, _startFolio);
                         Log($"Fallback folio {_startFolio} → index {idx}");
                     }
-        
-                    // Last fallback: folio minus 1
+
                     if (idx < 0 && _startFolio > 0)
                     {
                         idx = _startFolio - 1;
                         Log($"Last fallback: folio {_startFolio} → index {idx}");
                     }
-        
+
                     if (idx >= 0 && idx < _bookService.PageFiles.Count)
                     {
                         await _bookService.LoadPageAsync(idx);
@@ -210,9 +196,6 @@ public partial class BookViewerPage : ContentPage
         };
     }
 
-    /// <summary>
-    /// Section-scoped constructor: jumps to the first page of the given section.
-    /// </summary>
     public BookViewerPage(string bookFolder, string sectionId, int startFolio)
         : this(bookFolder, startFolio)
     {
@@ -289,24 +272,7 @@ public partial class BookViewerPage : ContentPage
             if (File.Exists(paraXmlPath))
             {
                 string paraContent = await File.ReadAllTextAsync(paraXmlPath);
-                var doc = new XmlDocument();
-                doc.LoadXml(paraContent);
-                var parasNode = doc.SelectSingleNode("//paras");
-                if (parasNode != null)
-                {
-                    var result = "";
-                    foreach (XmlNode child in parasNode.ChildNodes)
-                    {
-                        if (child.Name == "para")
-                        {
-                            var text = child.InnerText;
-                            var style = child.Attributes?["style"]?.Value ?? "";
-                            result += $"<div class='para' style='{style}'>{text}</div>";
-                        }
-                    }
-                    return result;
-                }
-                return "";
+                return BuildContentFromParaXml(paraContent);
             }
 
             return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
@@ -315,6 +281,64 @@ public partial class BookViewerPage : ContentPage
         {
             Log($"Error getting base content: {ex.Message}");
             return "<div style='padding:20px;color:#666;font-size:24px;'>Content not available</div>";
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds HTML from _para.xml, preserving x/y/textalign and other positioning attributes.
+    /// Essential for Chinese books where each line carries explicit coordinates.
+    /// </summary>
+    private string BuildContentFromParaXml(string paraXmlContent)
+    {
+        try
+        {
+            var doc = new XmlDocument();
+            doc.LoadXml(paraXmlContent);
+            var parasNode = doc.SelectSingleNode("//paras");
+            if (parasNode == null) return "";
+
+            var sb = new StringBuilder();
+
+            foreach (XmlNode child in parasNode.ChildNodes)
+            {
+                if (child.Name != "para") continue;
+
+                var text = child.InnerText;
+                if (string.IsNullOrEmpty(text)) continue;
+
+                text = System.Security.SecurityElement.Escape(text) ?? text;
+
+                var style = child.Attributes?["style"]?.Value ?? "";
+                var x     = child.Attributes?["x"]?.Value;
+                var y     = child.Attributes?["y"]?.Value;
+                var w     = child.Attributes?["width"]?.Value;
+                var h     = child.Attributes?["height"]?.Value;
+                var align = child.Attributes?["textalign"]?.Value;
+
+                var pos = new StringBuilder();
+                if (!string.IsNullOrEmpty(style)) pos.Append(style).Append(';');
+
+                if (!string.IsNullOrEmpty(x)) pos.Append("left:").Append(x).Append("px;");
+                if (!string.IsNullOrEmpty(y)) pos.Append("top:").Append(y).Append("px;");
+                if (!string.IsNullOrEmpty(w)) pos.Append("width:").Append(w).Append("px;");
+                if (!string.IsNullOrEmpty(h)) pos.Append("height:").Append(h).Append("px;");
+                if (!string.IsNullOrEmpty(align)) pos.Append("text-align:").Append(align).Append(';');
+
+                if (string.IsNullOrEmpty(align)) pos.Append("text-align:left;");
+
+                sb.Append("<div class='para' style=\"")
+                  .Append(pos.ToString())
+                  .Append("\">")
+                  .Append(text)
+                  .Append("</div>");
+            }
+
+            return sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            Log($"Error building content from para XML: {ex.Message}");
+            return "";
         }
     }
 
@@ -346,6 +370,8 @@ public partial class BookViewerPage : ContentPage
                     height: 100%;
                     overflow: auto;
                     background: #E8E8E8;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
                 }}
                 body {{
                     display: flex;
@@ -389,6 +415,25 @@ public partial class BookViewerPage : ContentPage
                     pointer-events: none;
                 }}
                 .base-content > * {{ position: absolute !important; }}
+
+                /* ---- Chinese / CJK paragraph alignment ---- */
+                .base-content .para {{
+                    position: absolute !important;
+                    line-height: 1 !important;
+                    white-space: pre;
+                    font-kerning: none;
+                    font-feature-settings: 'kern' 0, 'liga' 0;
+                    text-rendering: geometricPrecision;
+                    -webkit-font-smoothing: antialiased;
+                    -webkit-text-size-adjust: 100%;
+                }}
+                .base-content span,
+                .base-content div[class*='char'],
+                .base-content div[class*='word'] {{
+                    position: absolute !important;
+                    line-height: 1 !important;
+                }}
+
                 .highlight-overlay {{
                     position: absolute;
                     top: 0; left: 0;
@@ -443,6 +488,8 @@ public partial class BookViewerPage : ContentPage
                     height: 100%;
                     overflow: auto;
                     background: #E8E8E8;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
                 }}
                 body {{
                     display: flex;
@@ -486,6 +533,24 @@ public partial class BookViewerPage : ContentPage
                     pointer-events: none;
                 }}
                 .base-content > * {{ position: absolute !important; }}
+
+                /* ---- Chinese / CJK paragraph alignment ---- */
+                .base-content .para {{
+                    position: absolute !important;
+                    line-height: 1 !important;
+                    white-space: pre;
+                    font-kerning: none;
+                    font-feature-settings: 'kern' 0, 'liga' 0;
+                    text-rendering: geometricPrecision;
+                    -webkit-font-smoothing: antialiased;
+                    -webkit-text-size-adjust: 100%;
+                }}
+                .base-content span,
+                .base-content div[class*='char'],
+                .base-content div[class*='word'] {{
+                    position: absolute !important;
+                    line-height: 1 !important;
+                }}
             </style>
         </head>
         <body>
@@ -571,7 +636,7 @@ public partial class BookViewerPage : ContentPage
             UpdateViewModeButton();
         }
     }
-    
+
     private void UpdateViewModeButton()
     {
         ViewModeButton.Text = _currentViewMode switch
@@ -631,14 +696,14 @@ public partial class BookViewerPage : ContentPage
             StatusLabel.Text = "No student answers available for this page";
         }
     }
-    
+
     private void UpdateTeacherButton()
     {
         if (TeacherNotesButton == null) return;
-    
+
         bool active = _currentViewMode == "teacher";
         bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
-    
+
         TeacherNotesButton.Text = active ? "✎ Hide Notes" : "✎ Notes";
         TeacherNotesButton.BackgroundColor = active
             ? Color.FromArgb("#34C759")
@@ -647,14 +712,14 @@ public partial class BookViewerPage : ContentPage
             ? Colors.White
             : (dark ? Colors.White : Colors.Black);
     }
-        
+
     private void UpdateStudentButton()
     {
         if (StudentAnswersButton == null) return;
-    
+
         bool active = _currentViewMode == "student";
         bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
-    
+
         StudentAnswersButton.Text = active ? "✓ Hide Answers" : "✓ Answers";
         StudentAnswersButton.BackgroundColor = active
             ? Color.FromArgb("#34C759")
