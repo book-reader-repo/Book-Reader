@@ -240,9 +240,8 @@ public partial class BookViewerPage : ContentPage
 
     /// <summary>
     /// Splices an answer overlay into a known-good content HTML. The overlay
-    /// is inserted as a sibling of .base-content inside .content-overlay.
-    /// This guarantees the base content renders exactly as it does without
-    /// answers, regardless of what the answer fragment contains.
+    /// is inserted as a sibling of .base-content inside .content-overlay so
+    /// the base content always renders exactly as it does without answers.
     /// </summary>
     private string InjectAnswerOverlay(string contentHtml, string fragment, string viewType)
     {
@@ -258,20 +257,11 @@ public partial class BookViewerPage : ContentPage
 {fragment}
 </div>";
 
-        // Insert just before the last </div> in the content HTML.
-        // The last </div> closes .content-overlay (the outermost container
-        // in BuildBaseContentHtml / BuildOverlayHtml).
         int idx = contentHtml.LastIndexOf("</div>", StringComparison.OrdinalIgnoreCase);
         if (idx > 0)
             return contentHtml.Substring(0, idx) + overlayHtml + contentHtml.Substring(idx);
 
-        // Fallback: append at the very end
         return contentHtml + overlayHtml;
-    }
-
-    private string GetPlaceholderImage()
-    {
-        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1344'%3E%3Crect width='1024' height='1344' fill='%23ffffff'/%3E%3C/svg%3E";
     }
 
     private void UpdateDisplay()
@@ -303,7 +293,6 @@ public partial class BookViewerPage : ContentPage
             RightColumn.Width = new GridLength(0);
             NextPageWebView.IsVisible = false;
 
-            // Build the display HTML by layering onto the known-good content HTML
             string html;
             if (_currentViewMode == "teacher" && !string.IsNullOrEmpty(_currentTeacherFragment))
             {
@@ -467,11 +456,11 @@ public partial class BookViewerPage : ContentPage
             pdfService.RenderPageToImageAsync = async (html) =>
             {
             #if IOS
-                return await BookViewer.Platforms.iOS.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+                return await BookViewer.Platforms.iOS.WebViewCapture.CaptureHtmlAsync(html, 1024, 1309);
             #elif ANDROID
-                return await BookViewer.Platforms.Android.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+                return await BookViewer.Platforms.Android.WebViewCapture.CaptureHtmlAsync(html, 1024, 1309);
             #elif WINDOWS
-                return await BookViewer.Platforms.Windows.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
+                return await BookViewer.Platforms.Windows.WebViewCapture.CaptureHtmlAsync(html, 1024, 1309);
             #else
                 await Task.CompletedTask;
                 return null;
