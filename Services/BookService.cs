@@ -1145,8 +1145,9 @@ img.resbtn:active { opacity: .6 !important; }
                     url = Uri.UnescapeDataString(Uri.UnescapeDataString(url));
                     desc = DecodeDesc(desc);
 
-                    // Resolve relative paths against page dir or shared folder
-                    url = ResolveResourceUrl(url, pageDir);
+                    // *** IMPORTANT *** We DO NOT resolve %RESOURCES% to a hard path here anymore.
+                    // We leave it as %RESOURCES% so the WebView bridge passes the token, 
+                    // and OnWebViewNavigating (in BookViewerPage) handles it.
 
                     string iconDataUri = "";
                     if (!string.IsNullOrEmpty(iconPath))
@@ -1195,69 +1196,6 @@ img.resbtn:active { opacity: .6 !important; }
                 if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
             }
             return "";
-        }
-
-        private string ResolveResourceUrl(string url, string pageDir)
-        {
-            if (string.IsNullOrEmpty(url)) return url;
-            if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return url;
-            if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return url;
-
-            var booksRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer", "Books");
-            var sharedResources = Path.Combine(booksRoot, "resources");
-
-            // 1. %RESOURCES% → shared folder first, then per-book fallback
-            if (url.Contains("%RESOURCES%"))
-            {
-                var rel = url.Replace("%RESOURCES%/", "").Replace("%RESOURCES%", "").TrimStart('/');
-                var candidates = new[]
-                {
-                    Path.Combine(sharedResources, rel.Replace('/', Path.DirectorySeparatorChar)),
-                    Path.Combine(_currentBookPath, "resources", rel.Replace('/', Path.DirectorySeparatorChar)),
-                    Path.Combine(_currentBookPath, rel.Replace('/', Path.DirectorySeparatorChar)),
-                };
-                foreach (var c in candidates)
-                {
-                    var disk = Path.GetFullPath(c);
-                    if (File.Exists(disk))
-                    {
-                        Log($"[res] %RESOURCES% → {disk}");
-                        return disk;
-                    }
-                }
-                Log($"[res] %RESOURCES% NOT FOUND for '{rel}'");
-            }
-
-            // 2. ../X → walk up from pageDir
-            if (url.StartsWith("../") || url.StartsWith("..\\"))
-            {
-                var disk = Path.GetFullPath(Path.Combine(pageDir, url.Replace('/', Path.DirectorySeparatorChar)));
-                if (File.Exists(disk))
-                {
-                    Log($"[res] ../ → {disk}");
-                    return disk;
-                }
-                // Cross-book fallback (e.g., ../book_9999/resources/...)
-                if (url.StartsWith("../book_", StringComparison.OrdinalIgnoreCase))
-                {
-                    var booksDir = Path.GetDirectoryName(_currentBookPath.TrimEnd(Path.DirectorySeparatorChar));
-                    if (!string.IsNullOrEmpty(booksDir))
-                    {
-                        var crossDisk = Path.GetFullPath(Path.Combine(booksDir, url.Substring(3).Replace('/', Path.DirectorySeparatorChar)));
-                        if (File.Exists(crossDisk)) return crossDisk;
-                    }
-                }
-            }
-
-            // 3. Relative X → pageDir, then book root
-            var pageLocal = Path.GetFullPath(Path.Combine(pageDir, url.Replace('/', Path.DirectorySeparatorChar)));
-            if (File.Exists(pageLocal)) return pageLocal;
-
-            var bookLocal = Path.GetFullPath(Path.Combine(_currentBookPath, url.Replace('/', Path.DirectorySeparatorChar)));
-            if (File.Exists(bookLocal)) return bookLocal;
-
-            Log($"[res] UNRESOLVED: {url} (pageDir={pageDir}, bookPath={_currentBookPath})");
-            return url;
         }
 
         private static string DecodeDesc(string raw)
