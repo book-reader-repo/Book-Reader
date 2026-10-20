@@ -12,6 +12,8 @@ namespace BookViewer.Services
     {
         /// <summary>
         /// Parses steps_N_data.xml to extract resources (audio/video/docs) for a given page.
+        /// Resolves %RESOURCES% (and its URL-encoded form %25RESOURCES%25) against the
+        /// shared Books/resources folder first, then per-book fallbacks.
         /// </summary>
         public List<ResourceData> LoadResourcesForStepFile(string stepFilePath, string bookRoot)
         {
@@ -32,6 +34,12 @@ namespace BookViewer.Services
                 var items = doc.SelectNodes("//links/item");
                 if (items == null) return result;
 
+                // Shared resources root: <Documents>/BookViewer/Books/resources
+                var booksRoot = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "BookViewer", "Books");
+                var sharedResources = Path.Combine(booksRoot, "resources");
+
                 foreach (XmlNode item in items)
                 {
                     var path = item.SelectSingleNode("path")?.InnerText ?? "";
@@ -44,16 +52,8 @@ namespace BookViewer.Services
                     path = Uri.UnescapeDataString(path);
                     desc = Uri.UnescapeDataString(desc);
 
-                    // Resolve %RESOURCES% to a book-local folder if present
-                    if (path.Contains("%25RESOURCES%25") || path.Contains("%RESOURCES%"))
-                    {
-                        path = path.Replace("%25RESOURCES%25/", "resource/")
-                                   .Replace("%25RESOURCES%25", "resource")
-                                   .Replace("%RESOURCES%/", "resource/")
-                                   .Replace("%RESOURCES%", "resource");
-                        var localPath = Path.Combine(bookRoot, path);
-                        path = File.Exists(localPath) ? localPath : path;
-                    }
+                    // Resolve %RESOURCES% / %25RESOURCES%25 to a real path.
+                    path = ResolveResourcesPlaceholder(path, bookRoot, sharedResources);
 
                     string type = "link";
                     var lowerPath = path.ToLower();
@@ -84,6 +84,62 @@ namespace BookViewer.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Resolves a %RESOURCES% (or %25RESOURCES%25) placeholder to a real disk path.
+        /// Order of candidates:
+        ///   1. Shared Books/resources/<rel>
+        ///   2. <bookRoot>/resources/<rel>
+        ///   3. <bookRoot>/resource/<rel>
+        ///   4. <bookRoot>/<rel>
+        /// If nothing exists on disk, the ORIGINAL string is returned unchanged so
+        /// downstream code (FallbackUrl / remote URL handling) can still attempt it.
+        /// </summary>
+        private static string ResolveResourcesPlaceholder(string url, string bookRoot, string sharedResources)
+        {
+            if (string.IsNullOrEmpty(url)) return url;
+
+            // Normalize the double-encoded form first.
+            var decoded = url;
+            if (decoded.Contains("%25RESOURCES%25"))
+                decoded = decoded.Replace("%25RESOURCES%25", "%RESOURCES%");
+
+            if (!decoded.Contains("%RESOURCES%"))
+                return url; // nothing to resolve
+
+            var rel = decoded
+                .Replace("%RESOURCES%/", "")
+                .Replace("%RESOURCES%", "")
+                .TrimStart('/');
+
+            if (string.IsNullOrEmpty(rel))
+                return url;
+
+            var relNative = rel.Replace('/', Path.DirectorySeparatorChar);
+
+            var candidates = new[]
+            {
+                Path.Combine(sharedResources, relNative),
+                Path.Combine(bookRoot, "resources", relNative),
+                Path.Combine(bookRoot, "resource", relNative),
+                Path.Combine(bookRoot, relNative),
+            };
+
+            foreach (var c in candidates)
+            {
+                try
+                {
+                    var disk = Path.GetFullPath(c);
+                    if (File.Exists(disk))
+                        return disk;
+                }
+                catch { }
+            }
+
+            // Not found anywhere — return the original (untouched) URL so the
+            // caller can still surface a fallback URL or report it.
+            return url;
         }
     }
 }
