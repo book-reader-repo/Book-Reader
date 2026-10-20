@@ -241,7 +241,7 @@ namespace BookViewer.Views
                 if (string.IsNullOrWhiteSpace(target))
                     return;
 
-                // Online
+                // 1. Online
                 if (Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
                     (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
                 {
@@ -250,25 +250,40 @@ namespace BookViewer.Views
                     return;
                 }
 
-                // Local
+                // 2. Local
                 var fileName = Path.GetFileName(target);
                 if (string.IsNullOrEmpty(fileName))
                     return;
 
                 string localPath = null;
-                var resourcesDir = Path.Combine(_bookFolder, "resources");
-
-                if (Directory.Exists(resourcesDir))
+                
+                // Check if the path is already an absolute file path that exists
+                if (Path.IsPathRooted(target) && File.Exists(target))
                 {
-                    var direct = Path.Combine(resourcesDir, fileName);
-                    if (File.Exists(direct))
+                    localPath = target;
+                }
+                
+                // If not resolved yet, search in per-book and shared folders
+                if (string.IsNullOrEmpty(localPath))
+                {
+                    var resourcesDir = Path.Combine(_bookFolder, "resources");
+                    var sharedDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                        "BookViewer", "Books", "resources");
+
+                    var searchDirs = new[] { resourcesDir, sharedDir };
+
+                    foreach (var dir in searchDirs)
                     {
-                        localPath = direct;
-                    }
-                    else
-                    {
-                        var found = Directory.GetFiles(resourcesDir, fileName, SearchOption.AllDirectories).FirstOrDefault();
-                        if (found != null) localPath = found;
+                        if (!Directory.Exists(dir)) continue;
+                        
+                        // direct match
+                        var direct = Path.Combine(dir, fileName);
+                        if (File.Exists(direct)) { localPath = direct; break; }
+                        
+                        // recursive search
+                        var found = Directory.GetFiles(dir, fileName, SearchOption.AllDirectories).FirstOrDefault();
+                        if (found != null) { localPath = found; break; }
                     }
                 }
 
