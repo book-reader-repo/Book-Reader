@@ -339,12 +339,43 @@ public partial class BookViewerPage : ContentPage
                     return;
                 }
 
-                // 2. It's a local file path (e.g., "resources/K20107_pp.pptx").
+                // 2. Intercept and Resolve %RESOURCES% explicitly here!
                 string absolutePath = resourceUrl;
-                
-                if (!Path.IsPathRooted(resourceUrl))
+
+                // Unescape in case there are double-encodings (%25RESOURCES%25)
+                var decodedUrl = resourceUrl;
+                if (decodedUrl.Contains("%25RESOURCES%25"))
+                    decodedUrl = decodedUrl.Replace("%25RESOURCES%25", "%RESOURCES%");
+
+                if (decodedUrl.Contains("%RESOURCES%"))
                 {
-                    // Resolve relative paths against the book's root folder
+                    var rel = decodedUrl.Replace("%RESOURCES%/", "").Replace("%RESOURCES%", "").TrimStart('/');
+                    var booksRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer", "Books");
+                    var sharedResources = Path.Combine(booksRoot, "resources");
+
+                    var candidates = new[]
+                    {
+                        Path.Combine(sharedResources, rel.Replace('/', Path.DirectorySeparatorChar)),
+                        Path.Combine(_bookService.CurrentBookPath, "resources", rel.Replace('/', Path.DirectorySeparatorChar)),
+                        Path.Combine(_bookService.CurrentBookPath, rel.Replace('/', Path.DirectorySeparatorChar)),
+                    };
+
+                    absolutePath = "";
+                    foreach (var c in candidates)
+                    {
+                        var disk = Path.GetFullPath(c);
+                        if (File.Exists(disk)) { absolutePath = disk; break; }
+                    }
+                    
+                    // Fallback if not found in candidates
+                    if (string.IsNullOrEmpty(absolutePath))
+                    {
+                        absolutePath = Path.Combine(sharedResources, rel.Replace('/', Path.DirectorySeparatorChar));
+                    }
+                }
+                else if (!Path.IsPathRooted(resourceUrl))
+                {
+                    // Resolve standard relative paths
                     absolutePath = Path.Combine(_bookService.CurrentBookPath, resourceUrl.Replace('/', Path.DirectorySeparatorChar));
                 }
 
