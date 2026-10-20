@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -127,6 +128,12 @@ namespace BookViewer.Models
             var sectionGroups = doc.SelectNodes("//sectiongroup");
             if (sectionGroups != null)
             {
+                // Base paths for resolving %RESOURCES%
+                var booksRoot = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "BookViewer", "Books");
+                var sharedResources = Path.Combine(booksRoot, "resources");
+
                 foreach (XmlNode sg in sectionGroups)
                 {
                     var desc = sg.Attributes?["desc"]?.Value ?? "";
@@ -159,17 +166,21 @@ namespace BookViewer.Models
                     else if (lower.Contains(".docx") || lower.Contains(".doc") ||
                              lower.Contains(".pptx") || lower.Contains(".xlsx"))
                         type = "doc";
-                    
+
+                    // Decode and Resolve %RESOURCES%
+                    var decodedUrl = Uri.UnescapeDataString(url);
+                    var resolvedUrl = ResolveResourcesPath(decodedUrl, FolderPath, sharedResources);
+
                     var resource = new ResourceData
                     {
                         Type = type,
                         Description = Uri.UnescapeDataString(desc),
-                        Path = Uri.UnescapeDataString(url),
+                        Path = resolvedUrl,
                         Icon = Uri.UnescapeDataString(path),
                         PageNumber = "",
-                        FallbackUrl = ""   // <-- set this
+                        FallbackUrl = ""
                     };
-                    
+
                     // If the primary path is a local filename but a remote URL exists, keep the remote as fallback
                     if (!string.IsNullOrEmpty(url) &&
                         !url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
@@ -178,7 +189,7 @@ namespace BookViewer.Models
                                   ?? sg.Attributes?["studentiospath"]?.Value
                                   ?? sg.Attributes?["teacherweb"]?.Value
                                   ?? "";
-                    
+
                         if (!string.IsNullOrEmpty(remote))
                             resource.FallbackUrl = Uri.UnescapeDataString(remote);
                     }
@@ -203,6 +214,51 @@ namespace BookViewer.Models
                     }
                 }
             }
+        }
+
+        private static string ResolveResourcesPath(string url, string bookFolder, string sharedResources)
+        {
+            if (string.IsNullOrEmpty(url)) return url;
+
+            // Handle double encoded %25RESOURCES%25 just in case
+            var decoded = url;
+            if (decoded.Contains("%25RESOURCES%25"))
+                decoded = decoded.Replace("%25RESOURCES%25", "%RESOURCES%");
+
+            if (!decoded.Contains("%RESOURCES%"))
+                return url;
+
+            var rel = decoded
+                .Replace("%RESOURCES%/", "")
+                .Replace("%RESOURCES%", "")
+                .TrimStart('/');
+
+            if (string.IsNullOrEmpty(rel))
+                return url;
+
+            var relNative = rel.Replace('/', Path.DirectorySeparatorChar);
+
+            var candidates = new[]
+            {
+                Path.Combine(sharedResources, relNative),
+                Path.Combine(bookFolder, "resources", relNative),
+                Path.Combine(bookFolder, "resource", relNative),
+                Path.Combine(bookFolder, relNative),
+            };
+
+            foreach (var c in candidates)
+            {
+                try
+                {
+                    var disk = Path.GetFullPath(c);
+                    if (File.Exists(disk))
+                        return disk;
+                }
+                catch { }
+            }
+
+            // If not found on disk, return the original (untouched) so we don't break remote links
+            return url;
         }
 
         public List<SectionData> GetSectionsForUnit(string unitId)
@@ -232,7 +288,7 @@ namespace BookViewer.Models
         public string Description { get; set; } = "";
         public string PageNumber { get; set; } = "";
         public string Path { get; set; } = "";
-        public string FallbackUrl { get; set; } = "";   // <-- add this
+        public string FallbackUrl { get; set; } = "";
         public string Icon { get; set; } = "";
     }
 }
