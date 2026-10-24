@@ -441,19 +441,6 @@ img.resbtn:active { opacity: .6 !important; }
             catch { }
             return "";
         }
-
-        public async Task<string> BuildPageHtmlForRenderAsync(string filePath, bool includeAnswers, bool includeTeacherNotes, bool includeStudentAnswers)
-        {
-            bool prevT = _showTeacherNotes, prevS = _showStudentAnswers;
-            _showTeacherNotes = includeAnswers && includeTeacherNotes;
-            _showStudentAnswers = includeAnswers && includeStudentAnswers;
-            try
-            {
-                var rawHtml = await File.ReadAllTextAsync(filePath);
-                return await ProcessHtmlContent(rawHtml, filePath);
-            }
-            finally { _showTeacherNotes = prevT; _showStudentAnswers = prevS; }
-        }
                 
         public string GetLogPath() => GetLogFilePath();
         public string[] GetRecentLogs() { lock (_logBuffer) return _logBuffer.ToArray(); }
@@ -1498,7 +1485,7 @@ img.resbtn:active { opacity: .6 !important; }
             catch (Exception ex) { Log($"Font error: {ex.Message}"); }
             return "";
         }
-
+        
         public async Task<string> BuildPageHtmlForRenderAsync(string filePath, bool includeAnswers, bool includeTeacherNotes, bool includeStudentAnswers)
         {
             bool prevT = _showTeacherNotes, prevS = _showStudentAnswers;
