@@ -165,6 +165,11 @@ namespace BookViewer.Services
     html, body { margin: 0 !important; padding: 0 !important; width: 768pt !important; height: 1008pt !important; overflow: visible !important; background: #fff !important; }
     .page-container { position: relative !important; width: 768pt !important; height: 1008pt !important; transform: scale(1) !important; transform-origin: top left !important; margin: 0 !important; }
     img { max-width: 100% !important; height: auto !important; }
+
+    /* FORCE ANSWERS TO BE VISIBLE IN PDF */
+    pane.redAnswer { display: block !important; visibility: visible !important; }
+    div.tbred, div.tbnote, svg.tbred { display: block !important; visibility: visible !important; color: #E40477 !important; }
+    .hideBtn, img.hideBtn { display: inline-block !important; visibility: visible !important; opacity: 1 !important; }
 </style>
 ";
             if (html.Contains("<head>"))
