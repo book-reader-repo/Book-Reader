@@ -583,10 +583,14 @@ public partial class BookViewerPage : ContentPage
     }
 
     private async void OnBackClicked(object sender, EventArgs e) => await Navigation.PopAsync();
-
     private async void OnExportPdfClicked(object sender, EventArgs e)
     {
-        if (string.IsNullOrEmpty(_bookService.CurrentBookPath)) { await DisplayAlert("Info", "Please load a book first.", "OK"); return; }
+        if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
+        {
+            await DisplayAlert("Info", "Please load a book first.", "OK");
+            return;
+        }
+    
         try
         {
             var includeAnswers = await DisplayAlert("Export Options", "Include answers in the PDF?", "Yes", "No");
@@ -597,41 +601,29 @@ public partial class BookViewerPage : ContentPage
                 includeStudentAnswers = await DisplayAlert("Answer Type", "Include Student Answers?", "Yes", "No");
                 if (!includeTeacherNotes && !includeStudentAnswers) includeAnswers = false;
             }
-
+    
             var safe = string.Join("_", _bookService.BookTitle.Split(Path.GetInvalidFileNameChars()));
             var exportDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer", "Exports");
             Directory.CreateDirectory(exportDir);
             var outputPath = Path.Combine(exportDir, $"{safe}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
-
+    
             ExportPdfButton.IsEnabled = false;
             StatusLabel.Text = "Exporting PDF...";
-
+    
             var pdfService = new Services.PdfExportService(_bookService);
-            pdfService.RenderPageToImageAsync = async (html) =>
-            {
-#if IOS
-                return await BookViewer.Platforms.iOS.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
-#elif MACCATALYST
-                return await BookViewer.Platforms.MacCatalyst.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
-#elif ANDROID
-                return await BookViewer.Platforms.Android.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
-#elif WINDOWS
-                return await BookViewer.Platforms.Windows.WebViewCapture.CaptureHtmlAsync(html, 1024, 1344);
-#else
-                await Task.CompletedTask; return null;
-#endif
-            };
-
+    
             var tcs = new TaskCompletionSource<string>();
             pdfService.OnComplete += (s, path) => tcs.TrySetResult(path);
             pdfService.OnError += (s, error) => tcs.TrySetException(new Exception(error));
-
+            pdfService.OnProgress += (s, pct) =>
+                Dispatcher.Dispatch(() => StatusLabel.Text = $"Exporting PDF... {pct}%");
+    
             await pdfService.ExportBookAsPdfAsync(outputPath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
             var resultPath = await tcs.Task;
-
+    
             ExportPdfButton.IsEnabled = true;
             StatusLabel.Text = "PDF export complete!";
-
+    
             var openNow = await DisplayAlert("Export Complete", $"PDF saved to:\n{resultPath}\n\nOpen it now?", "Open", "Later");
             if (openNow) await Launcher.Default.OpenAsync(new OpenFileRequest { File = new ReadOnlyFile(resultPath) });
         }
