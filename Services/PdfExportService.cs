@@ -34,7 +34,6 @@ namespace BookViewer.Services
             bool includeTeacherNotes,
             bool includeStudentAnswers)
         {
-            var tempFiles = new List<string>();
             var tempDir = Path.Combine(Path.GetTempPath(), "BookViewerPdfExport");
 
             try
@@ -54,6 +53,9 @@ namespace BookViewer.Services
 
                 var pageSize = new PageSize(768f, 1008f);
 
+                // We will store each page's PDF in memory to avoid file locking issues
+                var pdfStreams = new List<byte[]>();
+
                 for (int i = 0; i < totalPages; i++)
                 {
                     OnProgress?.Invoke(this, (int)((i / (double)totalPages) * 100));
@@ -71,27 +73,32 @@ namespace BookViewer.Services
                     converterProperties.SetFontProvider(fontProvider);
                     converterProperties.SetCreateAcroForm(false);
 
-                    var tempPdfPath = Path.Combine(tempDir, $"page_{i}.pdf");
-
-                    using (var writer = new PdfWriter(tempPdfPath))
-                    using (var pdf = new PdfDocument(writer))
+                    // Convert to PDF in memory
+                    using (var ms = new MemoryStream())
                     {
-                        pdf.SetDefaultPageSize(pageSize);
-                        HtmlConverter.ConvertToPdf(html, pdf, converterProperties);
+                        using (var writer = new PdfWriter(ms))
+                        using (var pdf = new PdfDocument(writer))
+                        {
+                            pdf.SetDefaultPageSize(pageSize);
+                            HtmlConverter.ConvertToPdf(html, pdf, converterProperties);
+                        }
+                        
+                        // Save the generated PDF bytes
+                        pdfStreams.Add(ms.ToArray());
                     }
-
-                    tempFiles.Add(tempPdfPath);
                 }
 
                 OnProgress?.Invoke(this, 100);
 
+                // Merge all in-memory PDFs into the final output file
                 using (var writer = new PdfWriter(outputPath))
                 using (var mergedPdf = new PdfDocument(writer))
                 {
                     var merger = new PdfMerger(mergedPdf);
-                    foreach (var tempPdf in tempFiles)
+                    foreach (var pdfBytes in pdfStreams)
                     {
-                        using var reader = new PdfReader(tempPdf);
+                        using var ms = new MemoryStream(pdfBytes);
+                        using var reader = new PdfReader(ms);
                         using var sourcePdf = new PdfDocument(reader);
                         merger.Merge(sourcePdf, 1, sourcePdf.GetNumberOfPages());
                     }
@@ -105,10 +112,7 @@ namespace BookViewer.Services
             }
             finally
             {
-                foreach (var file in tempFiles)
-                {
-                    try { File.Delete(file); } catch { }
-                }
+                // Cleanup temporary images and fonts
                 try
                 {
                     if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
@@ -140,9 +144,7 @@ namespace BookViewer.Services
                     provider.AddFont(_extractedFontPath);
                     anyRegistered = true;
                 }
-                catch
-                {
-                }
+                catch { }
 
                 if (anyRegistered) break;
             }
