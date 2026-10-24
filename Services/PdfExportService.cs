@@ -167,11 +167,11 @@ namespace BookViewer.Services
 
                 if (styleMatch.Success)
                 {
-                    leftPx = float.Parse(styleMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-                    topPx = float.Parse(styleMatch.Groups[2].Value, CultureInfo.InvariantCulture);
+                    if (float.TryParse(styleMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedLeft)) leftPx = parsedLeft;
+                    if (float.TryParse(styleMatch.Groups[2].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedTop)) topPx = parsedTop;
                 }
-                if (widthMatch.Success) widthPx = float.Parse(widthMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-                if (heightMatch.Success) heightPx = float.Parse(heightMatch.Groups[2].Value, CultureInfo.InvariantCulture);
+                if (widthMatch.Success && float.TryParse(widthMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedWidth)) widthPx = parsedWidth;
+                if (heightMatch.Success && float.TryParse(heightMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedHeight)) heightPx = parsedHeight;
 
                 float x = leftPx * 0.75f;
                 float y = pageHeight - ((topPx + heightPx) * 0.75f);
@@ -198,15 +198,18 @@ namespace BookViewer.Services
         {
             try
             {
-                var matches = Regex.Matches(pathD, @"([a-zA-Z])|(-?\d*\.?\d+)");
+                // Split tokens by spaces or commas
+                var tokens = pathD.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
                 float currentX = 0, currentY = 0;
                 float startX = 0, startY = 0;
                 bool hasPoint = false;
                 float pt = 0.75f;
 
-                for (int i = 0; i < matches.Count; i++)
+                for (int i = 0; i < tokens.Length; i++)
                 {
-                    var token = matches[i].Value;
+                    var token = tokens[i];
+                    if (string.IsNullOrWhiteSpace(token)) continue;
+
                     if (char.IsLetter(token[0]))
                     {
                         char cmd = token[0];
@@ -220,10 +223,12 @@ namespace BookViewer.Services
                             continue;
                         }
 
-                        while (i + 1 < matches.Count && !char.IsLetter(matches[i + 1].Value[0]))
+                        // Read numbers until the next command letter
+                        while (i + 1 < tokens.Length && !char.IsLetter(tokens[i + 1][0]))
                         {
-                            float p1 = ParseFloat(matches[++i].Value);
-                            float p2 = ParseFloat(matches[++i].Value);
+                            if (!TryParseFloat(tokens[++i], out float p1)) continue;
+                            if (i + 1 >= tokens.Length || char.IsLetter(tokens[i + 1][0])) break;
+                            if (!TryParseFloat(tokens[++i], out float p2)) continue;
 
                             if (upperCmd == 'M')
                             {
@@ -242,10 +247,11 @@ namespace BookViewer.Services
                             }
                             else if (upperCmd == 'C')
                             {
-                                float p3 = ParseFloat(matches[++i].Value);
-                                float p4 = ParseFloat(matches[++i].Value);
-                                float p5 = ParseFloat(matches[++i].Value);
-                                float p6 = ParseFloat(matches[++i].Value);
+                                if (i + 3 >= tokens.Length) break;
+                                if (!TryParseFloat(tokens[++i], out float p3)) continue;
+                                if (!TryParseFloat(tokens[++i], out float p4)) continue;
+                                if (!TryParseFloat(tokens[++i], out float p5)) continue;
+                                if (!TryParseFloat(tokens[++i], out float p6)) continue;
                                 
                                 float x1 = p1, y1 = p2, x2 = p3, y2 = p4, x3 = p5, y3 = p6;
                                 if (isRel)
@@ -263,7 +269,7 @@ namespace BookViewer.Services
                                 currentX = x3; currentY = y3;
                             }
                             
-                            if (i + 1 >= matches.Count || char.IsLetter(matches[i + 1].Value[0])) break;
+                            if (i + 1 >= tokens.Length || char.IsLetter(tokens[i + 1][0])) break;
                         }
                     }
                 }
@@ -271,9 +277,9 @@ namespace BookViewer.Services
             catch { }
         }
 
-        private float ParseFloat(string s)
+        private bool TryParseFloat(string s, out float result)
         {
-            return float.Parse(s, CultureInfo.InvariantCulture);
+            return float.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out result);
         }
 
         private async Task<FontProvider> BuildFontProviderAsync(string html, string tempDir)
