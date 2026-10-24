@@ -20,6 +20,9 @@ namespace BookViewer.Services
         public event EventHandler<string>? OnComplete;
         public event EventHandler<string>? OnError;
 
+        // Cached once the book font is extracted from @font-face.
+        private string? _extractedFontPath;
+
         public PdfExportService(BookService bookService)
         {
             _bookService = bookService;
@@ -32,6 +35,8 @@ namespace BookViewer.Services
             bool includeStudentAnswers)
         {
             var tempFiles = new List<string>();
+            var tempDir = Path.Combine(Path.GetTempPath(), "BookViewerPdfExport");
+
             try
             {
                 var totalPages = _bookService.PageFiles.Count;
@@ -41,16 +46,11 @@ namespace BookViewer.Services
                     return;
                 }
 
-                var tempDir = Path.Combine(Path.GetTempPath(), "BookViewerPdfExport");
                 if (Directory.Exists(tempDir))
                 {
                     try { Directory.Delete(tempDir, true); } catch { }
                 }
                 Directory.CreateDirectory(tempDir);
-
-                var converterProperties = new ConverterProperties();
-                converterProperties.SetFontProvider(new DefaultFontProvider(true, true, true));
-                converterProperties.SetCreateAcroForm(false);
 
                 var pageSize = new PageSize(768f, 1008f);
 
@@ -60,11 +60,16 @@ namespace BookViewer.Services
 
                     var filePath = _bookService.PageFiles[i];
 
-                    // Uses the existing non-interactive pipeline in BookService.
-                    string html = await _bookService.BuildPageHtmlForPdfExportAsync(filePath);
+                    string html = await _bookService.BuildPageHtmlForRenderAsync(
+                        filePath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
 
                     html = InjectPdfCss(html);
                     html = await ExtractBase64ImagesAsync(html, tempDir, i);
+
+                    var fontProvider = await BuildFontProviderAsync(html, tempDir);
+                    var converterProperties = new ConverterProperties();
+                    converterProperties.SetFontProvider(fontProvider);
+                    converterProperties.SetCreateAcroForm(false);
 
                     var tempPdfPath = Path.Combine(tempDir, $"page_{i}.pdf");
 
@@ -106,15 +111,67 @@ namespace BookViewer.Services
                 }
                 try
                 {
-                    var dir = Path.Combine(Path.GetTempPath(), "BookViewerPdfExport");
-                    if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                    if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
                 }
                 catch { }
             }
         }
 
+        /// <summary>
+        /// Extracts the book's embedded font(s) from @font-face in the HTML and
+        /// registers them with pdfHTML. Using DefaultFontProvider(false,false,false)
+        /// forces pdfHTML to only use our registered fonts, so body text and answer
+        /// text (tbred/tbnote) render with the identical font.
+        /// </summary>
+        private async Task<FontProvider> BuildFontProviderAsync(string html, string tempDir)
+        {
+            var provider = new DefaultFontProvider(false, false, false);
+            bool anyRegistered = false;
+
+            foreach (Match fontFace in Regex.Matches(html, @"@font-face\s*\{[^}]*\}", RegexOptions.IgnoreCase))
+            {
+                var base64Match = Regex.Match(fontFace.Value, @"base64,([^""']+)\)", RegexOptions.IgnoreCase);
+                if (!base64Match.Success) continue;
+
+                try
+                {
+                    var fontBytes = Convert.FromBase64String(base64Match.Groups[1].Value);
+
+                    // Reuse the extracted font across pages.
+                    if (_extractedFontPath == null || !File.Exists(_extractedFontPath))
+                    {
+                        _extractedFontPath = Path.Combine(tempDir, "book_font.ttf");
+                        await File.WriteAllBytesAsync(_extractedFontPath, fontBytes);
+                    }
+
+                    provider.AddFont(_extractedFontPath);
+                    anyRegistered = true;
+                }
+                catch
+                {
+                    // Ignore malformed font blobs; fall back below.
+                }
+
+                // One font is enough for consistency; stop after the first success.
+                if (anyRegistered) break;
+            }
+
+            if (!anyRegistered)
+            {
+                // No embedded font found — let pdfHTML use standard/system fonts.
+                // Note: answer and body text will still share the same fallback.
+                provider = new DefaultFontProvider(true, true, true);
+            }
+
+            return provider;
+        }
+
         private string InjectPdfCss(string html)
         {
+            // NOTE: We intentionally do NOT hide .tbred/.tbnote here. Whether answers
+            // appear is controlled by includeAnswers/includeTeacherNotes/includeStudentAnswers
+            // in BuildPageHtmlForRenderAsync. Anything that remains is rendered by pdfHTML
+            // using the FontProvider we registered, so it matches the body font.
             var css = @"
 <style>
     @page { size: 768pt 1008pt; margin: 0 !important; }
