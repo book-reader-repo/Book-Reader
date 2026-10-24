@@ -74,6 +74,9 @@ namespace BookViewer.Services
                     converterProperties.SetFontProvider(fontProvider);
                     converterProperties.SetCreateAcroForm(false);
 
+                    byte[] pageBytes;
+
+                    // 1. Convert HTML to PDF in memory
                     using (var ms = new MemoryStream())
                     {
                         using (var writer = new PdfWriter(ms))
@@ -81,16 +84,27 @@ namespace BookViewer.Services
                         {
                             pdf.SetDefaultPageSize(pageSize);
                             HtmlConverter.ConvertToPdf(html, pdf, converterProperties);
+                        }
+                        pageBytes = ms.ToArray();
+                    }
 
-                            // Draw the SVG circles on top of the generated page
-                            if (includeAnswers)
+                    // 2. Draw SVG overlays (if needed) using AppendMode
+                    if (includeAnswers)
+                    {
+                        using (var readMs = new MemoryStream(pageBytes))
+                        using (var writeMs = new MemoryStream())
+                        {
+                            using (var reader = new PdfReader(readMs))
+                            using (var writer = new PdfWriter(writeMs))
+                            using (var pdf = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode()))
                             {
                                 DrawSvgOverlays(pdf, html);
                             }
+                            pageBytes = writeMs.ToArray();
                         }
-                        
-                        pdfStreams.Add(ms.ToArray());
                     }
+
+                    pdfStreams.Add(pageBytes);
                 }
 
                 OnProgress?.Invoke(this, 100);
@@ -134,10 +148,7 @@ namespace BookViewer.Services
                 @"<svg\b(?<tag>[^>]*\bclass=[""'][^""']*\btbred\b[^""']*[""'][^>]*)>(?<content>[\s\S]*?)</svg>",
                 RegexOptions.IgnoreCase);
 
-            var canvas = new PdfCanvas(pdfPage.NewContentStreamAfter(), pdfPage.GetResources(), pdf);
-            canvas.SetStrokeColor(new DeviceRgb(228, 4, 119)); // Exact red
-            canvas.SetLineWidth(1.0f);
-
+            PdfCanvas canvas = null;
             bool hasDrawn = false;
 
             foreach (Match sm in svgRegex.Matches(html))
@@ -164,16 +175,23 @@ namespace BookViewer.Services
 
                 float x = leftPx * 0.75f;
                 float y = pageHeight - ((topPx + heightPx) * 0.75f);
+
+                if (canvas == null)
+                {
+                    canvas = new PdfCanvas(pdfPage.NewContentStreamAfter(), pdfPage.GetResources(), pdf);
+                    canvas.SetStrokeColor(new DeviceRgb(228, 4, 119)); // Exact red
+                    canvas.SetLineWidth(1.0f);
+                }
                 
                 DrawSvgPath(canvas, pathD, x, y, heightPx * 0.75f);
                 hasDrawn = true;
             }
 
-            if (hasDrawn)
+            if (hasDrawn && canvas != null)
             {
                 canvas.Stroke();
             }
-            canvas.Release();
+            canvas?.Release();
         }
 
         private void DrawSvgPath(PdfCanvas canvas, string pathD, float baseX, float baseY, float height)
