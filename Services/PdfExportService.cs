@@ -3,6 +3,7 @@ using iText.Html2pdf.Resolver.Font;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
 using iText.Kernel.Utils;
+using iText.Layout.Font;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -20,7 +21,6 @@ namespace BookViewer.Services
         public event EventHandler<string>? OnComplete;
         public event EventHandler<string>? OnError;
 
-        // Cached once the book font is extracted from @font-face.
         private string? _extractedFontPath;
 
         public PdfExportService(BookService bookService)
@@ -117,12 +117,6 @@ namespace BookViewer.Services
             }
         }
 
-        /// <summary>
-        /// Extracts the book's embedded font(s) from @font-face in the HTML and
-        /// registers them with pdfHTML. Using DefaultFontProvider(false,false,false)
-        /// forces pdfHTML to only use our registered fonts, so body text and answer
-        /// text (tbred/tbnote) render with the identical font.
-        /// </summary>
         private async Task<FontProvider> BuildFontProviderAsync(string html, string tempDir)
         {
             var provider = new DefaultFontProvider(false, false, false);
@@ -137,7 +131,6 @@ namespace BookViewer.Services
                 {
                     var fontBytes = Convert.FromBase64String(base64Match.Groups[1].Value);
 
-                    // Reuse the extracted font across pages.
                     if (_extractedFontPath == null || !File.Exists(_extractedFontPath))
                     {
                         _extractedFontPath = Path.Combine(tempDir, "book_font.ttf");
@@ -149,17 +142,13 @@ namespace BookViewer.Services
                 }
                 catch
                 {
-                    // Ignore malformed font blobs; fall back below.
                 }
 
-                // One font is enough for consistency; stop after the first success.
                 if (anyRegistered) break;
             }
 
             if (!anyRegistered)
             {
-                // No embedded font found — let pdfHTML use standard/system fonts.
-                // Note: answer and body text will still share the same fallback.
                 provider = new DefaultFontProvider(true, true, true);
             }
 
@@ -168,10 +157,6 @@ namespace BookViewer.Services
 
         private string InjectPdfCss(string html)
         {
-            // NOTE: We intentionally do NOT hide .tbred/.tbnote here. Whether answers
-            // appear is controlled by includeAnswers/includeTeacherNotes/includeStudentAnswers
-            // in BuildPageHtmlForRenderAsync. Anything that remains is rendered by pdfHTML
-            // using the FontProvider we registered, so it matches the body font.
             var css = @"
 <style>
     @page { size: 768pt 1008pt; margin: 0 !important; }
