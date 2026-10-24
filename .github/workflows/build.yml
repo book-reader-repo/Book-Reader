@@ -33,6 +33,14 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      - name: NuGet Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Install Android Workloads
         run: |
           dotnet workload install android maui-android
@@ -69,6 +77,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
+
+      - name: NuGet Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Select Xcode 26.5
         uses: maxim-lobanov/setup-xcode@v1
@@ -119,6 +135,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
+
+      - name: NuGet Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Select Xcode 26.5
         uses: maxim-lobanov/setup-xcode@v1
@@ -190,6 +214,14 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      - name: NuGet Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Install Windows Workload
         run: |
           dotnet workload install maui-windows
@@ -213,7 +245,7 @@ jobs:
           if-no-files-found: error
 
   # ============================================================
-  # NEW: Publish to GitHub Releases (only when release_build = true)
+  # Publish to GitHub Releases (only when release_build = true)
   # ============================================================
   publish-release:
     name: Publish GitHub Release
