@@ -211,9 +211,6 @@ public partial class BookViewerPage : ContentPage
         _targetStep = step;
     }
 
-    // ============================================================
-    // BRIDGE NAVIGATION
-    // ============================================================
     private async void OnWebViewNavigating(object sender, WebNavigatingEventArgs e)
     {
         var url = e.Url;
@@ -225,7 +222,6 @@ public partial class BookViewerPage : ContentPage
 
         e.Cancel = true;
 
-        // Manual parse: never new Uri() on the raw bridge string
         string host, query;
 
         if (url.StartsWith("bookviewer://", StringComparison.OrdinalIgnoreCase))
@@ -251,7 +247,7 @@ public partial class BookViewerPage : ContentPage
 
         try
         {
-            var q = HttpUtility.ParseQueryString(query);   // decodes ONCE
+            var q = HttpUtility.ParseQueryString(query);
 
             if (host == "splitpane-open")
             {
@@ -312,7 +308,7 @@ public partial class BookViewerPage : ContentPage
             }
             else if (host == "open-resource")
             {
-                var resourceUrl  = q["url"]  ?? ""; // Already decoded once by ParseQueryString
+                var resourceUrl  = q["url"]  ?? "";
                 var resourceDesc = q["desc"] ?? "";
                 var openInApp    = q["openInApp"] == "1";
                 var audio        = q["audio"] == "1";
@@ -321,7 +317,6 @@ public partial class BookViewerPage : ContentPage
 
                 if (string.IsNullOrEmpty(resourceUrl)) return;
 
-                // 1. Check if it's a remote URL
                 if (resourceUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 {
                     try
@@ -339,10 +334,8 @@ public partial class BookViewerPage : ContentPage
                     return;
                 }
 
-                // 2. Intercept and Resolve %RESOURCES% explicitly here!
                 string absolutePath = resourceUrl;
 
-                // Unescape in case there are double-encodings (%25RESOURCES%25)
                 var decodedUrl = resourceUrl;
                 if (decodedUrl.Contains("%25RESOURCES%25"))
                     decodedUrl = decodedUrl.Replace("%25RESOURCES%25", "%RESOURCES%");
@@ -366,8 +359,7 @@ public partial class BookViewerPage : ContentPage
                         var disk = Path.GetFullPath(c);
                         if (File.Exists(disk)) { absolutePath = disk; break; }
                     }
-                    
-                    // Fallback if not found in candidates
+
                     if (string.IsNullOrEmpty(absolutePath))
                     {
                         absolutePath = Path.Combine(sharedResources, rel.Replace('/', Path.DirectorySeparatorChar));
@@ -375,11 +367,9 @@ public partial class BookViewerPage : ContentPage
                 }
                 else if (!Path.IsPathRooted(resourceUrl))
                 {
-                    // Resolve standard relative paths
                     absolutePath = Path.Combine(_bookService.CurrentBookPath, resourceUrl.Replace('/', Path.DirectorySeparatorChar));
                 }
 
-                // 3. Verify it exists and open it
                 if (File.Exists(absolutePath))
                 {
                     await OpenLocalResourceAsync(absolutePath, openInApp);
@@ -445,7 +435,6 @@ public partial class BookViewerPage : ContentPage
 
     private async void OnContentWebViewNavigated(object sender, WebNavigatedEventArgs e)
     {
-        // Only call the override JS if the page actually defines it.
         if (string.IsNullOrEmpty(_currentContentHtml)) return;
         if (!_currentContentHtml.Contains("__setNotes") &&
             !_currentContentHtml.Contains("__setRedAnswers"))
@@ -583,6 +572,7 @@ public partial class BookViewerPage : ContentPage
     }
 
     private async void OnBackClicked(object sender, EventArgs e) => await Navigation.PopAsync();
+
     private async void OnExportPdfClicked(object sender, EventArgs e)
     {
         if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
@@ -590,7 +580,7 @@ public partial class BookViewerPage : ContentPage
             await DisplayAlert("Info", "Please load a book first.", "OK");
             return;
         }
-    
+
         try
         {
             var includeAnswers = await DisplayAlert("Export Options", "Include answers in the PDF?", "Yes", "No");
@@ -601,29 +591,29 @@ public partial class BookViewerPage : ContentPage
                 includeStudentAnswers = await DisplayAlert("Answer Type", "Include Student Answers?", "Yes", "No");
                 if (!includeTeacherNotes && !includeStudentAnswers) includeAnswers = false;
             }
-    
+
             var safe = string.Join("_", _bookService.BookTitle.Split(Path.GetInvalidFileNameChars()));
             var exportDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer", "Exports");
             Directory.CreateDirectory(exportDir);
             var outputPath = Path.Combine(exportDir, $"{safe}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
-    
+
             ExportPdfButton.IsEnabled = false;
             StatusLabel.Text = "Exporting PDF...";
-    
+
             var pdfService = new Services.PdfExportService(_bookService);
-    
+
             var tcs = new TaskCompletionSource<string>();
             pdfService.OnComplete += (s, path) => tcs.TrySetResult(path);
             pdfService.OnError += (s, error) => tcs.TrySetException(new Exception(error));
             pdfService.OnProgress += (s, pct) =>
                 Dispatcher.Dispatch(() => StatusLabel.Text = $"Exporting PDF... {pct}%");
-    
+
             await pdfService.ExportBookAsPdfAsync(outputPath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
             var resultPath = await tcs.Task;
-    
+
             ExportPdfButton.IsEnabled = true;
             StatusLabel.Text = "PDF export complete!";
-    
+
             var openNow = await DisplayAlert("Export Complete", $"PDF saved to:\n{resultPath}\n\nOpen it now?", "Open", "Later");
             if (openNow) await Launcher.Default.OpenAsync(new OpenFileRequest { File = new ReadOnlyFile(resultPath) });
         }
