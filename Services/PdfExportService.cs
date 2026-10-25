@@ -67,7 +67,6 @@ namespace BookViewer.Services
                         filePath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
 
                     html = InjectPdfCss(html, includeTeacherNotes, includeStudentAnswers);
-                    
                     html = await ExtractBase64ImagesAsync(html, tempDir, i);
 
                     var fontProvider = await BuildFontProviderAsync(html, tempDir);
@@ -76,9 +75,8 @@ namespace BookViewer.Services
                     converterProperties.SetCreateAcroForm(false);
 
                     byte[] pageBytes;
-                    // FIX: PageSize uses GetHeight() method, not .Height property
-                    var pageAnswers = ExtractAnswerPositions(html, pageSize.GetHeight());
 
+                    // 1. Generate the base HTML to PDF page
                     using (var ms = new MemoryStream())
                     {
                         using (var writer = new PdfWriter(ms))
@@ -86,13 +84,28 @@ namespace BookViewer.Services
                         {
                             pdf.SetDefaultPageSize(pageSize);
                             HtmlConverter.ConvertToPdf(html, pdf, converterProperties);
-
-                            if (includeAnswers && pageAnswers.Svgs.Count > 0)
-                            {
-                                DrawSvgOverlays(pdf, pageAnswers.Svgs);
-                            }
                         }
                         pageBytes = ms.ToArray();
+                    }
+
+                    // 2. If answers requested, overlay the SVG circles safely using AppendMode
+                    if (includeAnswers)
+                    {
+                        var pageAnswers = ExtractAnswerPositions(html, pageSize.GetHeight());
+                        if (pageAnswers.Svgs.Count > 0)
+                        {
+                            using (var readMs = new MemoryStream(pageBytes))
+                            using (var writeMs = new MemoryStream())
+                            {
+                                using (var reader = new PdfReader(readMs))
+                                using (var writer = new PdfWriter(writeMs))
+                                using (var pdf = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode()))
+                                {
+                                    DrawSvgOverlays(pdf, pageAnswers.Svgs);
+                                }
+                                pageBytes = writeMs.ToArray();
+                            }
+                        }
                     }
 
                     pdfStreams.Add(pageBytes);
@@ -167,11 +180,11 @@ namespace BookViewer.Services
                 
                 if (styleMatch.Success)
                 {
-                    leftPx = float.Parse(styleMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-                    topPx = float.Parse(styleMatch.Groups[2].Value, CultureInfo.InvariantCulture);
+                    if (float.TryParse(styleMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedLeft)) leftPx = parsedLeft;
+                    if (float.TryParse(styleMatch.Groups[2].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedTop)) topPx = parsedTop;
                 }
-                if (widthMatch.Success) widthPx = float.Parse(widthMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-                if (heightMatch.Success) heightPx = float.Parse(heightMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+                if (widthMatch.Success && float.TryParse(widthMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedWidth)) widthPx = parsedWidth;
+                if (heightMatch.Success && float.TryParse(heightMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedHeight)) heightPx = parsedHeight;
 
                 float x = leftPx * 0.75f;
                 float y = pageHeight - ((topPx + heightPx) * 0.75f);
@@ -337,6 +350,7 @@ namespace BookViewer.Services
     .page-container { position: relative !important; width: 768pt !important; height: 1008pt !important; transform: scale(1) !important; transform-origin: top left !important; margin: 0 !important; }
     img { max-width: 100% !important; height: auto !important; }
 
+    /* HIDE INTERACTIVE BUTTONS AND SVGS FROM PDFHTML */
     .hideBtn, img.hideBtn, img.redbtn, img.hsgbtn, img.has2btn, svg.tbred { display: none !important; visibility: hidden !important; }
 ";
 
