@@ -4,11 +4,7 @@ using iText.Kernel.Colors;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas;
-using iText.Kernel.Pdf.Xobject;
 using iText.Kernel.Utils;
-using iText.Kernel.Font;
-using iText.IO.Font;
-using iText.IO.Font.Constants;
 using iText.Layout.Font;
 using System;
 using System.Collections.Generic;
@@ -67,14 +63,13 @@ namespace BookViewer.Services
 
                     var filePath = _bookService.PageFiles[i];
 
-                    // Uses BookService to build the HTML, respecting the includeAnswers flags
+                    // BuildPageHtmlForRenderAsync applies the requested logic to the HTML
                     string html = await _bookService.BuildPageHtmlForRenderAsync(
                         filePath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
 
-                    // Inject CSS to hide the interactive buttons from the actual PDF render
-                    html = InjectPdfCss(html);
+                    // Pass the flags so the CSS forces visibility only where requested
+                    html = InjectPdfCss(html, includeTeacherNotes, includeStudentAnswers);
                     
-                    // Extract base64 images to disk so iText can read them properly
                     html = await ExtractBase64ImagesAsync(html, tempDir, i);
 
                     var fontProvider = await BuildFontProviderAsync(html, tempDir);
@@ -93,7 +88,7 @@ namespace BookViewer.Services
                             pdf.SetDefaultPageSize(pageSize);
                             HtmlConverter.ConvertToPdf(html, pdf, converterProperties);
 
-                            // Draw SVG circles directly onto the page using the experimental logic
+                            // Draw SVG circles only if requested
                             if (includeAnswers && pageAnswers.Svgs.Count > 0)
                             {
                                 DrawSvgOverlays(pdf, pageAnswers.Svgs);
@@ -154,7 +149,6 @@ namespace BookViewer.Services
         {
             var result = new AnswerPositions();
             
-            // Exact regex from experimental to find SVG circles
             var svgRegex = new Regex(
                 @"<svg\b(?<tag>[^>]*\bclass=[""'][^""']*\btbred\b[^""']*[""'][^>]*)>(?<content>[\s\S]*?)</svg>",
                 RegexOptions.IgnoreCase);
@@ -216,7 +210,6 @@ namespace BookViewer.Services
             canvas?.Release();
         }
 
-        // Exact SVG path drawer from experimental
         private void DrawSvgPath(PdfCanvas canvas, string pathD, float baseX, float baseY, float height)
         {
             try
@@ -337,8 +330,9 @@ namespace BookViewer.Services
             return provider;
         }
 
-        private string InjectPdfCss(string html)
+        private string InjectPdfCss(string html, bool includeTeacherNotes, bool includeStudentAnswers)
         {
+            // Base CSS
             var css = @"
 <style>
     @page { size: 768pt 1008pt; margin: 0 !important; }
@@ -346,14 +340,35 @@ namespace BookViewer.Services
     .page-container { position: relative !important; width: 768pt !important; height: 1008pt !important; transform: scale(1) !important; transform-origin: top left !important; margin: 0 !important; }
     img { max-width: 100% !important; height: auto !important; }
 
-    /* FORCE RED TEXT ANSWERS TO BE VISIBLE (pdfHTML native rendering) */
-    pane.redAnswer { display: block !important; visibility: visible !important; }
-    div.tbred, div.tbnote { display: block !important; visibility: visible !important; color: #E40477 !important; }
-    
     /* HIDE INTERACTIVE BUTTONS AND SVGS FROM PDFHTML (SVGS ARE DRAWN MANUALLY ON TOP) */
     .hideBtn, img.hideBtn, img.redbtn, img.hsgbtn, img.has2btn, svg.tbred { display: none !important; visibility: hidden !important; }
-</style>
 ";
+
+            // Force red answer layers to display IF requested
+            if (includeStudentAnswers || includeTeacherNotes)
+            {
+                css += @"
+    pane.redAnswer { display: block !important; visibility: visible !important; }
+";
+            }
+
+            // Force specific text layers to display
+            if (includeStudentAnswers)
+            {
+                css += @"
+    div.tbred { display: block !important; visibility: visible !important; color: #E40477 !important; }
+";
+            }
+
+            if (includeTeacherNotes)
+            {
+                css += @"
+    div.tbnote { display: block !important; visibility: visible !important; color: #E40477 !important; }
+";
+            }
+
+            css += "</style>";
+
             if (html.Contains("<head>"))
                 return html.Replace("<head>", "<head>" + css);
             return css + html;
