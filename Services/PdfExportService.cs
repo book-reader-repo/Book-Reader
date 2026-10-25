@@ -4,7 +4,11 @@ using iText.Kernel.Colors;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas;
+using iText.Kernel.Pdf.Xobject;
 using iText.Kernel.Utils;
+using iText.Kernel.Font;
+using iText.IO.Font;
+using iText.IO.Font.Constants;
 using iText.Layout.Font;
 using System;
 using System.Collections.Generic;
@@ -63,10 +67,14 @@ namespace BookViewer.Services
 
                     var filePath = _bookService.PageFiles[i];
 
+                    // Uses BookService to build the HTML, respecting the includeAnswers flags
                     string html = await _bookService.BuildPageHtmlForRenderAsync(
                         filePath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
 
+                    // Inject CSS to hide the interactive buttons from the actual PDF render
                     html = InjectPdfCss(html);
+                    
+                    // Extract base64 images to disk so iText can read them properly
                     html = await ExtractBase64ImagesAsync(html, tempDir, i);
 
                     var fontProvider = await BuildFontProviderAsync(html, tempDir);
@@ -75,8 +83,8 @@ namespace BookViewer.Services
                     converterProperties.SetCreateAcroForm(false);
 
                     byte[] pageBytes;
+                    var pageAnswers = ExtractAnswerPositions(html, pageSize.Height);
 
-                    // 1. Convert HTML to PDF in memory
                     using (var ms = new MemoryStream())
                     {
                         using (var writer = new PdfWriter(ms))
@@ -84,24 +92,14 @@ namespace BookViewer.Services
                         {
                             pdf.SetDefaultPageSize(pageSize);
                             HtmlConverter.ConvertToPdf(html, pdf, converterProperties);
+
+                            // Draw SVG circles directly onto the page using the experimental logic
+                            if (includeAnswers && pageAnswers.Svgs.Count > 0)
+                            {
+                                DrawSvgOverlays(pdf, pageAnswers.Svgs);
+                            }
                         }
                         pageBytes = ms.ToArray();
-                    }
-
-                    // 2. Draw SVG overlays (if needed) using AppendMode
-                    if (includeAnswers)
-                    {
-                        using (var readMs = new MemoryStream(pageBytes))
-                        using (var writeMs = new MemoryStream())
-                        {
-                            using (var reader = new PdfReader(readMs))
-                            using (var writer = new PdfWriter(writeMs))
-                            using (var pdf = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode()))
-                            {
-                                DrawSvgOverlays(pdf, html);
-                            }
-                            pageBytes = writeMs.ToArray();
-                        }
                     }
 
                     pdfStreams.Add(pageBytes);
@@ -138,24 +136,34 @@ namespace BookViewer.Services
             }
         }
 
-        private void DrawSvgOverlays(PdfDocument pdf, string html)
+        private class SvgOverlay
         {
-            if (pdf.GetNumberOfPages() == 0) return;
-            var pdfPage = pdf.GetPage(1);
-            float pageHeight = pdfPage.GetPageSize().GetHeight();
+            public string PathD { get; set; } = "";
+            public float X { get; set; }
+            public float Y { get; set; }
+            public float W { get; set; }
+            public float H { get; set; }
+        }
 
+        private class AnswerPositions
+        {
+            public List<SvgOverlay> Svgs { get; } = new();
+        }
+
+        private AnswerPositions ExtractAnswerPositions(string html, float pageHeight)
+        {
+            var result = new AnswerPositions();
+            
+            // Exact regex from experimental to find SVG circles
             var svgRegex = new Regex(
                 @"<svg\b(?<tag>[^>]*\bclass=[""'][^""']*\btbred\b[^""']*[""'][^>]*)>(?<content>[\s\S]*?)</svg>",
                 RegexOptions.IgnoreCase);
-
-            PdfCanvas canvas = null;
-            bool hasDrawn = false;
 
             foreach (Match sm in svgRegex.Matches(html))
             {
                 string tag = sm.Groups["tag"].Value;
                 string content = sm.Groups["content"].Value;
-
+                
                 var pathMatch = Regex.Match(content, @"<path\b[^>]*\bd=[""']([^""']+)[""']", RegexOptions.IgnoreCase);
                 if (!pathMatch.Success) continue;
                 string pathD = pathMatch.Groups[1].Value;
@@ -164,52 +172,64 @@ namespace BookViewer.Services
                 var styleMatch = Regex.Match(tag, @"style=[""'][^""']*left:\s*([\d\.]+)px[^""']*top:\s*([\d\.]+)px", RegexOptions.IgnoreCase);
                 var widthMatch = Regex.Match(tag, @"\bwidth=[""'](\d+)[""']", RegexOptions.IgnoreCase);
                 var heightMatch = Regex.Match(tag, @"\bheight=[""'](\d+)[""']", RegexOptions.IgnoreCase);
-
+                
                 if (styleMatch.Success)
                 {
-                    if (float.TryParse(styleMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedLeft)) leftPx = parsedLeft;
-                    if (float.TryParse(styleMatch.Groups[2].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedTop)) topPx = parsedTop;
+                    leftPx = float.Parse(styleMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+                    topPx = float.Parse(styleMatch.Groups[2].Value, CultureInfo.InvariantCulture);
                 }
-                if (widthMatch.Success && float.TryParse(widthMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedWidth)) widthPx = parsedWidth;
-                if (heightMatch.Success && float.TryParse(heightMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out float parsedHeight)) heightPx = parsedHeight;
+                if (widthMatch.Success) widthPx = float.Parse(widthMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+                if (heightMatch.Success) heightPx = float.Parse(heightMatch.Groups[1].Value, CultureInfo.InvariantCulture);
 
                 float x = leftPx * 0.75f;
                 float y = pageHeight - ((topPx + heightPx) * 0.75f);
+                float w = widthPx * 0.75f;
+                float h = heightPx * 0.75f;
 
+                result.Svgs.Add(new SvgOverlay { PathD = pathD, X = x, Y = y, W = w, H = h });
+            }
+
+            return result;
+        }
+
+        private void DrawSvgOverlays(PdfDocument pdf, List<SvgOverlay> svgs)
+        {
+            if (pdf.GetNumberOfPages() == 0) return;
+            var pdfPage = pdf.GetPage(1);
+
+            PdfCanvas canvas = null;
+            var bookRed = new DeviceRgb(228, 4, 119);
+
+            foreach (var shape in svgs)
+            {
                 if (canvas == null)
                 {
                     canvas = new PdfCanvas(pdfPage.NewContentStreamAfter(), pdfPage.GetResources(), pdf);
-                    canvas.SetStrokeColor(new DeviceRgb(228, 4, 119)); // Exact red
+                    canvas.SetStrokeColor(bookRed);
                     canvas.SetLineWidth(1.0f);
                 }
-                
-                DrawSvgPath(canvas, pathD, x, y, heightPx * 0.75f);
-                hasDrawn = true;
-            }
 
-            if (hasDrawn && canvas != null)
-            {
+                DrawSvgPath(canvas, shape.PathD, shape.X, shape.Y, shape.H);
                 canvas.Stroke();
             }
+
             canvas?.Release();
         }
 
+        // Exact SVG path drawer from experimental
         private void DrawSvgPath(PdfCanvas canvas, string pathD, float baseX, float baseY, float height)
         {
             try
             {
-                // Split tokens by spaces or commas
-                var tokens = pathD.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                var matches = Regex.Matches(pathD, @"([a-zA-Z])|(-?\d*\.?\d+)");
                 float currentX = 0, currentY = 0;
                 float startX = 0, startY = 0;
                 bool hasPoint = false;
                 float pt = 0.75f;
 
-                for (int i = 0; i < tokens.Length; i++)
+                for (int i = 0; i < matches.Count; i++)
                 {
-                    var token = tokens[i];
-                    if (string.IsNullOrWhiteSpace(token)) continue;
-
+                    var token = matches[i].Value;
                     if (char.IsLetter(token[0]))
                     {
                         char cmd = token[0];
@@ -223,12 +243,11 @@ namespace BookViewer.Services
                             continue;
                         }
 
-                        // Read numbers until the next command letter
-                        while (i + 1 < tokens.Length && !char.IsLetter(tokens[i + 1][0]))
+                        while (i + 1 < matches.Count && !char.IsLetter(matches[i + 1].Value[0]))
                         {
-                            if (!TryParseFloat(tokens[++i], out float p1)) continue;
-                            if (i + 1 >= tokens.Length || char.IsLetter(tokens[i + 1][0])) break;
-                            if (!TryParseFloat(tokens[++i], out float p2)) continue;
+                            if (!TryParseFloat(matches[++i].Value, out float p1)) continue;
+                            if (i + 1 >= matches.Count || char.IsLetter(matches[i + 1].Value[0])) break;
+                            if (!TryParseFloat(matches[++i].Value, out float p2)) continue;
 
                             if (upperCmd == 'M')
                             {
@@ -247,11 +266,11 @@ namespace BookViewer.Services
                             }
                             else if (upperCmd == 'C')
                             {
-                                if (i + 3 >= tokens.Length) break;
-                                if (!TryParseFloat(tokens[++i], out float p3)) continue;
-                                if (!TryParseFloat(tokens[++i], out float p4)) continue;
-                                if (!TryParseFloat(tokens[++i], out float p5)) continue;
-                                if (!TryParseFloat(tokens[++i], out float p6)) continue;
+                                if (i + 3 >= matches.Count) break;
+                                if (!TryParseFloat(matches[++i].Value, out float p3)) continue;
+                                if (!TryParseFloat(matches[++i].Value, out float p4)) continue;
+                                if (!TryParseFloat(matches[++i].Value, out float p5)) continue;
+                                if (!TryParseFloat(matches[++i].Value, out float p6)) continue;
                                 
                                 float x1 = p1, y1 = p2, x2 = p3, y2 = p4, x3 = p5, y3 = p6;
                                 if (isRel)
@@ -269,7 +288,7 @@ namespace BookViewer.Services
                                 currentX = x3; currentY = y3;
                             }
                             
-                            if (i + 1 >= tokens.Length || char.IsLetter(tokens[i + 1][0])) break;
+                            if (i + 1 >= matches.Count || char.IsLetter(matches[i + 1].Value[0])) break;
                         }
                     }
                 }
@@ -327,11 +346,11 @@ namespace BookViewer.Services
     .page-container { position: relative !important; width: 768pt !important; height: 1008pt !important; transform: scale(1) !important; transform-origin: top left !important; margin: 0 !important; }
     img { max-width: 100% !important; height: auto !important; }
 
-    /* FORCE ANSWERS TO BE VISIBLE IN PDF */
+    /* FORCE RED TEXT ANSWERS TO BE VISIBLE (pdfHTML native rendering) */
     pane.redAnswer { display: block !important; visibility: visible !important; }
     div.tbred, div.tbnote { display: block !important; visibility: visible !important; color: #E40477 !important; }
     
-    /* HIDE INTERACTIVE BUTTONS AND SVGS FROM PDFHTML (SVGS ARE DRAWN MANUALLY) */
+    /* HIDE INTERACTIVE BUTTONS AND SVGS FROM PDFHTML (SVGS ARE DRAWN MANUALLY ON TOP) */
     .hideBtn, img.hideBtn, img.redbtn, img.hsgbtn, img.has2btn, svg.tbred { display: none !important; visibility: hidden !important; }
 </style>
 ";
