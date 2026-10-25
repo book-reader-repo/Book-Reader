@@ -573,7 +573,7 @@ public partial class BookViewerPage : ContentPage
 
     private async void OnBackClicked(object sender, EventArgs e) => await Navigation.PopAsync();
 
-    private async void OnExportPdfClicked(object sender, EventArgs e)
+        private async void OnExportPdfClicked(object sender, EventArgs e)
     {
         if (string.IsNullOrEmpty(_bookService.CurrentBookPath))
         {
@@ -583,14 +583,20 @@ public partial class BookViewerPage : ContentPage
 
         try
         {
-            var includeAnswers = await DisplayAlert("Export Options", "Include answers in the PDF?", "Yes", "No");
-            bool includeTeacherNotes = false, includeStudentAnswers = false;
-            if (includeAnswers)
-            {
-                includeTeacherNotes = await DisplayAlert("Answer Type", "Include Teacher Notes?", "Yes", "No");
-                includeStudentAnswers = await DisplayAlert("Answer Type", "Include Student Answers?", "Yes", "No");
-                if (!includeTeacherNotes && !includeStudentAnswers) includeAnswers = false;
-            }
+            // 1. Ask for Student Answers
+            bool includeStudentAnswers = await DisplayAlert(
+                "Export Options", 
+                "Include Student Answers in the PDF?", 
+                "Yes", "No");
+
+            // 2. Ask for Teacher Notes
+            bool includeTeacherNotes = await DisplayAlert(
+                "Export Options", 
+                "Include Teacher Notes in the PDF?", 
+                "Yes", "No");
+
+            // If neither is selected, includeAnswers is false
+            bool includeAnswers = includeStudentAnswers || includeTeacherNotes;
 
             var safe = string.Join("_", _bookService.BookTitle.Split(Path.GetInvalidFileNameChars()));
             var exportDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookViewer", "Exports");
