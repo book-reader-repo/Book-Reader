@@ -63,11 +63,9 @@ namespace BookViewer.Services
 
                     var filePath = _bookService.PageFiles[i];
 
-                    // BuildPageHtmlForRenderAsync applies the requested logic to the HTML
                     string html = await _bookService.BuildPageHtmlForRenderAsync(
                         filePath, includeAnswers, includeTeacherNotes, includeStudentAnswers);
 
-                    // Pass the flags so the CSS forces visibility only where requested
                     html = InjectPdfCss(html, includeTeacherNotes, includeStudentAnswers);
                     
                     html = await ExtractBase64ImagesAsync(html, tempDir, i);
@@ -78,7 +76,8 @@ namespace BookViewer.Services
                     converterProperties.SetCreateAcroForm(false);
 
                     byte[] pageBytes;
-                    var pageAnswers = ExtractAnswerPositions(html, pageSize.Height);
+                    // FIX: PageSize uses GetHeight() method, not .Height property
+                    var pageAnswers = ExtractAnswerPositions(html, pageSize.GetHeight());
 
                     using (var ms = new MemoryStream())
                     {
@@ -88,7 +87,6 @@ namespace BookViewer.Services
                             pdf.SetDefaultPageSize(pageSize);
                             HtmlConverter.ConvertToPdf(html, pdf, converterProperties);
 
-                            // Draw SVG circles only if requested
                             if (includeAnswers && pageAnswers.Svgs.Count > 0)
                             {
                                 DrawSvgOverlays(pdf, pageAnswers.Svgs);
@@ -332,7 +330,6 @@ namespace BookViewer.Services
 
         private string InjectPdfCss(string html, bool includeTeacherNotes, bool includeStudentAnswers)
         {
-            // Base CSS
             var css = @"
 <style>
     @page { size: 768pt 1008pt; margin: 0 !important; }
@@ -340,11 +337,9 @@ namespace BookViewer.Services
     .page-container { position: relative !important; width: 768pt !important; height: 1008pt !important; transform: scale(1) !important; transform-origin: top left !important; margin: 0 !important; }
     img { max-width: 100% !important; height: auto !important; }
 
-    /* HIDE INTERACTIVE BUTTONS AND SVGS FROM PDFHTML (SVGS ARE DRAWN MANUALLY ON TOP) */
     .hideBtn, img.hideBtn, img.redbtn, img.hsgbtn, img.has2btn, svg.tbred { display: none !important; visibility: hidden !important; }
 ";
 
-            // Force red answer layers to display IF requested
             if (includeStudentAnswers || includeTeacherNotes)
             {
                 css += @"
@@ -352,7 +347,6 @@ namespace BookViewer.Services
 ";
             }
 
-            // Force specific text layers to display
             if (includeStudentAnswers)
             {
                 css += @"
