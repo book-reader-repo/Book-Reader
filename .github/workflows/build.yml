@@ -8,6 +8,11 @@ on:
         required: false
         default: false
         type: boolean
+      release_notes:
+        description: 'Describe what changed in this build (shown in GitHub Release notes)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build-android:
@@ -15,6 +20,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Build Notes
+        if: ${{ inputs.release_notes != '' }}
+        env:
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          echo "### 📝 Build Notes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$NOTES" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -66,6 +80,15 @@ jobs:
     runs-on: macos-latest
 
     steps:
+      - name: Build Notes
+        if: ${{ inputs.release_notes != '' }}
+        env:
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          echo "### 📝 Build Notes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$NOTES" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -124,6 +147,15 @@ jobs:
     runs-on: macos-latest
 
     steps:
+      - name: Build Notes
+        if: ${{ inputs.release_notes != '' }}
+        env:
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          echo "### 📝 Build Notes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$NOTES" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -201,6 +233,16 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      - name: Build Notes
+        if: ${{ inputs.release_notes != '' }}
+        shell: pwsh
+        env:
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### 📝 Build Notes"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $env:NOTES
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -255,6 +297,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Release Build Notice
+        env:
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          echo "::notice title=Release Build::🚀 RELEASE build detected — publishing artifacts to GitHub Releases."
+          if [ -n "$NOTES" ]; then
+            echo "### 📝 Build Notes" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' "$NOTES" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -332,7 +385,9 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Release ${{ steps.tag.outputs.tag }}"
           body: |
-            Automated release build for BookViewer.
+            ${{ inputs.release_notes != '' && inputs.release_notes || 'Automated release build for BookViewer.' }}
+
+            ---
 
             **Commit:** ${{ github.sha }}
             **Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
