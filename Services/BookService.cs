@@ -32,8 +32,9 @@ namespace BookViewer
         private bool _showStudentAnswers = false;
 
         private readonly Dictionary<string, int> _stepFileToIndex = new();
-        private readonly Dictionary<int, string> _folioToStepFile = new();
+        private readonly Dictionary<int, List<string>> _folioToStepFiles = new();
         private readonly Dictionary<string, Dictionary<int, string>> _sectionFolioMap = new();
+        private readonly Dictionary<string, Dictionary<string, int>> _sectionStepFileToIndex = new();
         private readonly Dictionary<string, int> _sectionFirstIndex = new();
         private readonly Dictionary<string, string> _unitFirstSection = new();
 
@@ -494,7 +495,12 @@ img.resbtn:active { opacity: .6 !important; }
         public bool ShowTeacherNotes => _showTeacherNotes;
         public bool ShowStudentAnswers => _showStudentAnswers;
 
-        public Dictionary<int, string> FolioToStepFile => _folioToStepFile;
+        /// <summary>
+        /// First-occurrence folio → step file. Folios can restart per unit/section, so
+        /// prefer GetSectionForFolio() / GetIndexForSectionFolio() for section-aware navigation.
+        /// </summary>
+        public Dictionary<int, string> FolioToStepFile =>
+            _folioToStepFiles.ToDictionary(kv => kv.Key, kv => kv.Value.FirstOrDefault() ?? "");
         public Dictionary<string, int> StepFileToIndex => _stepFileToIndex;
 
         public void SetShowTeacherNotes(bool show) { _showTeacherNotes = show; if (_currentPageIndex >= 0) _ = LoadPageAsync(_currentPageIndex); }
@@ -530,12 +536,40 @@ img.resbtn:active { opacity: .6 !important; }
             var name = Path.GetFileNameWithoutExtension(stepFile);
             return _stepFileToIndex.TryGetValue(name, out int idx) ? idx : -1;
         }
-        public int GetIndexForFolio(int folio) => _folioToStepFile.TryGetValue(folio, out var sf) ? GetIndexForStepFile(sf) : -1;
+        
+        public int GetIndexForFolio(int folio)
+        {
+            if (!_folioToStepFiles.TryGetValue(folio, out var files) || files.Count == 0)
+                return -1;
+            // First occurrence wins as a fallback — prefer the section-aware overload.
+            return GetIndexForStepFile(files[0]);
+        }
+        
+        /// <summary>
+        /// Section-aware folio lookup. Use this whenever the section is known —
+        /// folios restart per unit/section in some books, so a bare folio is ambiguous.
+        /// </summary>
+        public int GetIndexForFolio(string sectionId, int folio)
+        {
+            if (!string.IsNullOrEmpty(sectionId))
+            {
+                var bySection = GetIndexForSectionFolio(sectionId, folio);
+                if (bySection >= 0) return bySection;
+            }
+            return GetIndexForFolio(folio);
+        }
+        
         public int GetIndexForSectionFolio(string sectionId, int folio)
         {
             if (string.IsNullOrEmpty(sectionId)) return -1;
             if (_sectionFolioMap.TryGetValue(sectionId, out var fm) && fm.TryGetValue(folio, out var sf))
             {
+                // Try section-scoped index first (resolves duplicate filenames across sections)
+                if (_sectionStepFileToIndex.TryGetValue(sectionId, out var secMap))
+                {
+                    var bare = Path.GetFileNameWithoutExtension(sf);
+                    if (secMap.TryGetValue(bare, out int idx)) return idx;
+                }
                 var composite = sectionId + "/" + sf;
                 if (_stepFileToIndex.TryGetValue(composite, out int i)) return i;
                 if (_stepFileToIndex.TryGetValue(sf, out int j)) return j;
@@ -565,25 +599,25 @@ img.resbtn:active { opacity: .6 !important; }
                 _assetCache.Clear();
                 _fontCache.Clear();
                 _lastFontCss = "";
-
+        
                 _tempFolder = Path.Combine(FileSystem.CacheDirectory, "BookViewer", $"temp_{Guid.NewGuid().ToString().Substring(0, 8)}");
                 Directory.CreateDirectory(_tempFolder);
-
+        
                 var bookXmlPath = Path.Combine(folderPath, "book.xml");
                 if (!File.Exists(bookXmlPath)) { OnStatusChanged?.Invoke(this, "book.xml not found"); return false; }
-
+        
                 var folderName = Path.GetFileName(folderPath);
                 var bookIdMatch = Regex.Match(folderName, @"book_(\d+)");
                 if (bookIdMatch.Success) _currentBookUid = bookIdMatch.Groups[1].Value;
-
+        
                 var content = await File.ReadAllTextAsync(bookXmlPath);
-
+        
                 if (string.IsNullOrEmpty(_currentBookUid))
                 {
                     var uidMatch = Regex.Match(content, @"id=""([^""]+)""");
                     if (uidMatch.Success) _currentBookUid = uidMatch.Groups[1].Value;
                 }
-
+        
                 bool bookXmlDecrypted = false;
                 if (_decryptionService.IsEncrypted(content))
                 {
@@ -592,27 +626,28 @@ img.resbtn:active { opacity: .6 !important; }
                     await File.WriteAllTextAsync(bookXmlPath, content);
                     bookXmlDecrypted = true;
                 }
-
+        
                 _bookTitle = "Unknown Book";
                 var titleMatch = Regex.Match(content, @"name=""([^""]+)""");
                 if (titleMatch.Success) _bookTitle = titleMatch.Groups[1].Value;
                 OnBookLoaded?.Invoke(this, _bookTitle);
-
+        
                 if (bookXmlDecrypted) await DecryptBookFilesAsync(folderPath);
-
+        
                 _pageFiles.Clear();
                 _stepFileToIndex.Clear();
-                _folioToStepFile.Clear();
+                _folioToStepFiles.Clear();
                 _sectionFolioMap.Clear();
                 _sectionFirstIndex.Clear();
                 _unitFirstSection.Clear();
-
+                _sectionStepFileToIndex.Clear();
+        
                 var stepsFiles = Directory.GetFiles(folderPath, "steps_*.html", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(folderPath, "step_*.html", SearchOption.AllDirectories))
                     .Where(f => IsPureStepsFile(Path.GetFileName(f)))
                     .Distinct()
                     .ToList();
-
+        
                 _pageFiles = stepsFiles
                     .GroupBy(f => Path.GetDirectoryName(f) ?? "")
                     .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
@@ -621,7 +656,7 @@ img.resbtn:active { opacity: .6 !important; }
                         .ThenBy(x => x.Path)
                         .Select(x => x.Path))
                     .ToList();
-
+        
                 for (int i = 0; i < _pageFiles.Count; i++)
                 {
                     var name = Path.GetFileNameWithoutExtension(_pageFiles[i]);
@@ -630,7 +665,7 @@ img.resbtn:active { opacity: .6 !important; }
                     if (!_stepFileToIndex.ContainsKey(composite)) _stepFileToIndex[composite] = i;
                     if (!_stepFileToIndex.ContainsKey(name)) _stepFileToIndex[name] = i;
                 }
-
+        
                 try
                 {
                     var bookDoc = new XmlDocument();
@@ -639,7 +674,7 @@ img.resbtn:active { opacity: .6 !important; }
                     if (!trimmedXml.StartsWith("<book") && !trimmedXml.StartsWith("<?xml") && !trimmedXml.StartsWith("<root"))
                         xmlText = $"<root>{xmlText}</root>";
                     bookDoc.LoadXml(xmlText);
-
+        
                     var sectionNodes = bookDoc.SelectNodes("//sectiondetails/sectiondetail");
                     if (sectionNodes != null)
                     {
@@ -647,14 +682,14 @@ img.resbtn:active { opacity: .6 !important; }
                         {
                             var sectionId = sn.Attributes?["id"]?.Value ?? "";
                             if (string.IsNullOrEmpty(sectionId)) continue;
-
+        
                             var firstPageNode = sn.SelectSingleNode(".//sectionorders/page");
                             if (firstPageNode != null)
                             {
                                 var s = firstPageNode.Attributes?["seqindex"]?.Value ?? "";
                                 if (int.TryParse(s, out int seq)) _sectionFirstIndex[sectionId] = seq;
                             }
-
+        
                             var pageNodes = sn.SelectNodes(".//sectionorders/page");
                             if (pageNodes != null)
                                 foreach (XmlNode p in pageNodes)
@@ -662,12 +697,18 @@ img.resbtn:active { opacity: .6 !important; }
                                     var folioStr = p.Attributes?["folio"]?.Value ?? "";
                                     var file = p.Attributes?["file"]?.Value ?? "";
                                     if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
-                                        if (!_folioToStepFile.ContainsKey(folio))
-                                            _folioToStepFile[folio] = file;
+                                    {
+                                        if (!_folioToStepFiles.TryGetValue(folio, out var list))
+                                        {
+                                            list = new List<string>();
+                                            _folioToStepFiles[folio] = list;
+                                        }
+                                        if (!list.Contains(file)) list.Add(file);
+                                    }
                                 }
                         }
                     }
-
+        
                     var unitDetailNodes = bookDoc.SelectNodes("//unitdetail");
                     if (unitDetailNodes != null)
                     {
@@ -675,7 +716,7 @@ img.resbtn:active { opacity: .6 !important; }
                         {
                             var unitId = un.Attributes?["id"]?.Value ?? "";
                             if (string.IsNullOrEmpty(unitId)) continue;
-
+        
                             var secNodes = un.SelectNodes(".//section");
                             if (secNodes != null && secNodes.Count > 0)
                             {
@@ -687,7 +728,7 @@ img.resbtn:active { opacity: .6 !important; }
                     }
                 }
                 catch (Exception ex) { Log($"Error parsing book.xml: {ex.Message}"); }
-
+        
                 var sectionFolders = Directory.GetDirectories(folderPath, "s_*");
                 foreach (var sectionDir in sectionFolders)
                 {
@@ -721,16 +762,53 @@ img.resbtn:active { opacity: .6 !important; }
                     }
                     catch (Exception ex) { Log($"Error parsing {pagesXmlPath}: {ex.Message}"); }
                 }
-
+        
+                // Build section-scoped step-file → global index maps so a step file
+                // "steps_1.html" inside section s_3 resolves to the correct global page even
+                // when other sections also contain a file named "steps_1.html".
+                foreach (var kv in _sectionFolioMap)
+                {
+                    var sectionId = kv.Key;
+                    var filesInSection = kv.Value.Values
+                        .Select(v => Path.GetFileNameWithoutExtension(v ?? ""))
+                        .Where(v => !string.IsNullOrEmpty(v))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+        
+                    var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var stepName in filesInSection)
+                    {
+                        var composite = sectionId + "/" + stepName;
+                        if (_stepFileToIndex.TryGetValue(composite, out int globalIdx))
+                        {
+                            map[stepName] = globalIdx;
+                            continue;
+                        }
+                        // Fallback: find the first page file under this section dir matching the name
+                        for (int i = 0; i < _pageFiles.Count; i++)
+                        {
+                            var dir = Path.GetFileName(Path.GetDirectoryName(_pageFiles[i]) ?? "");
+                            var bare = Path.GetFileNameWithoutExtension(_pageFiles[i]);
+                            if (string.Equals(dir, sectionId, StringComparison.OrdinalIgnoreCase) &&
+                                string.Equals(bare, stepName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                map[stepName] = i;
+                                break;
+                            }
+                        }
+                    }
+                    _sectionStepFileToIndex[sectionId] = map;
+                }
+        
                 OnPagesLoaded?.Invoke(this, _pageFiles);
-
+        
                 if (_pageFiles.Count > 0)
                 {
                     _currentPageIndex = 0;
                     await LoadPageAsync(0);
                 }
                 else { OnStatusChanged?.Invoke(this, "No pages found"); return false; }
-
+        
                 OnStatusChanged?.Invoke(this, $"Loaded: {_bookTitle} ({_pageFiles.Count} pages)");
                 return true;
             }
@@ -741,7 +819,7 @@ img.resbtn:active { opacity: .6 !important; }
                 return false;
             }
         }
-
+        
         private async Task DecryptBookFilesAsync(string folderPath)
         {
             try
