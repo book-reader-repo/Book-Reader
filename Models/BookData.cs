@@ -18,6 +18,11 @@ namespace BookViewer.Models
         public Dictionary<string, List<SectionData>> UnitSections { get; set; } = new();
         public List<SectionData> AllSections { get; set; } = new();
 
+        /// <summary>
+        /// Best-effort folio → step file map. NOTE: folios restart per unit/section
+        /// in some books, so this only stores the FIRST occurrence. Use
+        /// GetSectionForFolio / SectionData.PageStart for section-aware lookups.
+        /// </summary>
         public Dictionary<int, string> FolioToStepFile { get; set; } = new();
 
         public void LoadFromXml(string xmlContent, string folderPath)
@@ -78,6 +83,8 @@ namespace BookViewer.Models
                     };
 
                     var pageNodes = node.SelectNodes(".//page");
+                    int firstFolio = -1;
+
                     if (pageNodes != null)
                     {
                         foreach (XmlNode pageNode in pageNodes)
@@ -90,11 +97,18 @@ namespace BookViewer.Models
 
                             if (int.TryParse(folioStr, out int folio) && !string.IsNullOrEmpty(file))
                             {
+                                if (firstFolio < 0 || folio < firstFolio)
+                                    firstFolio = folio;
+
                                 if (!FolioToStepFile.ContainsKey(folio))
                                     FolioToStepFile[folio] = file;
                             }
                         }
                     }
+
+                    // Fallback: no pagestart attribute — use lowest folio we saw
+                    if (string.IsNullOrEmpty(section.PageStart) && firstFolio >= 0)
+                        section.PageStart = firstFolio.ToString();
 
                     AllSections.Add(section);
                 }
@@ -128,7 +142,6 @@ namespace BookViewer.Models
             var sectionGroups = doc.SelectNodes("//sectiongroup");
             if (sectionGroups != null)
             {
-                // Base paths for resolving %RESOURCES%
                 var booksRoot = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                     "BookViewer", "Books");
@@ -167,7 +180,6 @@ namespace BookViewer.Models
                              lower.Contains(".pptx") || lower.Contains(".xlsx"))
                         type = "doc";
 
-                    // Decode and Resolve %RESOURCES%
                     var decodedUrl = Uri.UnescapeDataString(url);
                     var resolvedUrl = ResolveResourcesPath(decodedUrl, FolderPath, sharedResources);
 
@@ -181,7 +193,6 @@ namespace BookViewer.Models
                         FallbackUrl = ""
                     };
 
-                    // If the primary path is a local filename but a remote URL exists, keep the remote as fallback
                     if (!string.IsNullOrEmpty(url) &&
                         !url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                     {
@@ -193,7 +204,7 @@ namespace BookViewer.Models
                         if (!string.IsNullOrEmpty(remote))
                             resource.FallbackUrl = Uri.UnescapeDataString(remote);
                     }
-                    // Pull page number out of desc like "(第18頁)"
+
                     var pageMatch = Regex.Match(desc, @"\(第(\d+)頁\)");
                     if (pageMatch.Success)
                         resource.PageNumber = pageMatch.Groups[1].Value;
@@ -220,7 +231,6 @@ namespace BookViewer.Models
         {
             if (string.IsNullOrEmpty(url)) return url;
 
-            // Handle double encoded %25RESOURCES%25 just in case
             var decoded = url;
             if (decoded.Contains("%25RESOURCES%25"))
                 decoded = decoded.Replace("%25RESOURCES%25", "%RESOURCES%");
@@ -257,13 +267,24 @@ namespace BookViewer.Models
                 catch { }
             }
 
-            // If not found on disk, return the original (untouched) so we don't break remote links
             return url;
         }
 
         public List<SectionData> GetSectionsForUnit(string unitId)
         {
             return UnitSections.TryGetValue(unitId, out var s) ? s : new List<SectionData>();
+        }
+
+        /// <summary>
+        /// Given a step file name like "steps_12.html", find which section owns it.
+        /// Useful for resolving the correct section context when only a file is known.
+        /// </summary>
+        public SectionData GetSectionForStepFile(string stepFileName)
+        {
+            if (string.IsNullOrEmpty(stepFileName)) return null;
+            var bare = Path.GetFileName(stepFileName);
+            return AllSections.FirstOrDefault(s =>
+                s.StepFiles.Any(f => string.Equals(Path.GetFileName(f), bare, StringComparison.OrdinalIgnoreCase)));
         }
     }
 
