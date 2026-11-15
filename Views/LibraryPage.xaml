@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:behaviors="clr-namespace:BookViewer.Behaviors"
              x:Class="BookViewer.Views.LibraryPage"
+             x:Name="LibraryPageRoot"
              BackgroundColor="{AppThemeBinding Light={StaticResource Canvas}, Dark={StaticResource CanvasDark}}">
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
 
         <!-- ================= TOP BAR ================= -->
-        <!-- Translucent material: solid on Android, tinted on iOS -->
         <Grid Grid.Row="0"
               BackgroundColor="{AppThemeBinding Light={StaticResource Surface}, Dark={StaticResource SurfaceDark}}"
               Padding="20,12"
@@ -89,7 +90,12 @@
                             <TapGestureRecognizer Tapped="OnBookTapped"/>
                         </VerticalStackLayout.GestureRecognizers>
 
-                        <!-- No frame — just the image with rounded corners baked into the border-less background -->
+                        <VerticalStackLayout.Behaviors>
+                            <behaviors:LongPressBehavior
+                                CommandParameter="{Binding .}"
+                                LongPressed="OnBookLongPressed"/>
+                        </VerticalStackLayout.Behaviors>
+
                         <Frame Padding="0"
                                CornerRadius="6"
                                HasShadow="False"
