@@ -24,6 +24,10 @@ namespace BookViewer.Views
         private readonly List<LibraryBook> _allBooks = new();
         private readonly List<LibraryBook> _books = new();
 
+        // Used to suppress the tap that follows a long-press.
+        private LibraryBook _longPressedBook;
+        private DateTime _longPressTime;
+
         public LibraryPage()
         {
             InitializeComponent();
@@ -53,6 +57,11 @@ namespace BookViewer.Views
 
             foreach (var dir in Directory.GetDirectories(booksDir))
             {
+                // Skip temp / resource folders
+                var name = Path.GetFileName(dir);
+                if (name.StartsWith("temp_", StringComparison.OrdinalIgnoreCase)) continue;
+                if (name.Equals("resources", StringComparison.OrdinalIgnoreCase)) continue;
+
                 var bookXmlPath = Path.Combine(dir, "book.xml");
                 if (!File.Exists(bookXmlPath)) continue;
 
@@ -86,7 +95,6 @@ namespace BookViewer.Views
                 }
             }
 
-            // Sort by numeric ID when possible, otherwise alphabetical
             _allBooks.Sort((a, b) =>
             {
                 bool an = int.TryParse(a.BookId, out int ai);
@@ -167,6 +175,14 @@ namespace BookViewer.Views
             if ((sender as BindableObject)?.BindingContext is not LibraryBook book)
                 return;
 
+            // Suppress tap that immediately follows a long-press on the same book.
+            if (_longPressedBook == book &&
+                (DateTime.UtcNow - _longPressTime).TotalMilliseconds < 1000)
+            {
+                _longPressedBook = null;
+                return;
+            }
+
             try
             {
                 var toc = new TocPage(book.FolderPath, book.Data);
@@ -175,6 +191,64 @@ namespace BookViewer.Views
             catch (Exception ex)
             {
                 await DisplayAlert("Error", ex.Message, "OK");
+            }
+        }
+
+        private async void OnBookLongPressed(object sender, EventArgs e)
+        {
+            if (sender is not BookViewer.Behaviors.LongPressBehavior behavior)
+                return;
+
+            if (behavior.CommandParameter is not LibraryBook book)
+                return;
+
+            _longPressedBook = book;
+            _longPressTime = DateTime.UtcNow;
+
+            await ConfirmDeleteBookAsync(book);
+        }
+
+        private async Task ConfirmDeleteBookAsync(LibraryBook book)
+        {
+            if (book == null) return;
+
+            var confirm = await DisplayAlert(
+                "Remove Book",
+                $"Delete \"{book.Title}\" (book_{book.BookId}) from your library?\n\nThis removes the downloaded files from disk.",
+                "Delete", "Cancel");
+
+            if (!confirm) return;
+
+            try
+            {
+                // Drop the cover image reference so the file handle is released
+                book.CoverImageSource = null;
+
+                // Rebind the collection so the Image handler is detached before deletion
+                BooksCollection.ItemsSource = null;
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
+                // Small delay for OS to release any lingering file handles
+                await Task.Delay(150);
+
+                if (Directory.Exists(book.FolderPath))
+                    Directory.Delete(book.FolderPath, true);
+
+                _allBooks.Remove(book);
+                _books.Remove(book);
+
+                ApplyFilter();
+
+                StatusLabel.Text = $"Removed book_{book.BookId}";
+            }
+            catch (Exception ex)
+            {
+                await DisplayAlert("Delete Failed",
+                    $"Could not delete the book folder:\n{ex.Message}\n\n{book.FolderPath}", "OK");
+                // Restore the list on failure
+                ApplyFilter();
             }
         }
 
