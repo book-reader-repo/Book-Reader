@@ -182,11 +182,13 @@ public partial class BookViewerPage : ContentPage
                     return;
                 }
             }
-
+            
             if (_startFolio > 0)
             {
-                int idx = _bookService.GetIndexForFolio(_startFolio);
-                Log($"GetIndexForFolio({_startFolio}) -> {idx}");
+                int idx = !string.IsNullOrEmpty(_targetSectionId)
+                    ? _bookService.GetIndexForFolio(_targetSectionId, _startFolio)
+                    : _bookService.GetIndexForFolio(_startFolio);
+                Log($"GetIndexForFolio(section='{_targetSectionId}', folio={_startFolio}) -> {idx}");
                 if (idx >= 0 && idx < _bookService.PageFiles.Count)
                 {
                     await _bookService.LoadPageAsync(idx);
